@@ -17,6 +17,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Service
@@ -68,20 +69,22 @@ public class RentalAgreementService {
                     "Unit " + unit.getRoomNumber() + " already has an active agreement");
         }
 
+        BigDecimal agreedRent = request.rentAmount() != null
+                ? request.rentAmount()
+                : unit.getRentAmount();
+
         RentalAgreement agreement = RentalAgreement.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
                 .tenant(tenant)
                 .unit(unit)
                 .startDate(request.startDate())
-                .rentAmount(request.rentAmount())
+                .rentAmount(agreedRent)
                 .depositAmount(request.depositAmount())
                 .status(AgreementStatus.ACTIVE)
                 .build();
 
-        // mark unit as occupied
         unit.setAvailable(false);
         unitRepository.save(unit);
-
         return RentalAgreementResponse.from(agreementRepository.save(agreement));
     }
 

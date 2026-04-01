@@ -15,14 +15,14 @@ public record RentalAgreementRequest(
         @NotNull(message = "Unit is required")
         UUID unitId,
 
-        @NotNull(message = "Start date is required")
+        // nullable — for existing tenants where move-in date is unknown
         LocalDate startDate,
 
-        @NotNull(message = "Rent amount is required")
+        // nullable — defaults to unit's rent amount if not provided
         @Positive(message = "Rent amount must be greater than zero")
         BigDecimal rentAmount,
 
-        @NotNull(message = "Deposit amount is required")
+        // nullable — for existing tenants where deposit was already paid
         @Positive(message = "Deposit amount must be greater than zero")
         BigDecimal depositAmount
 ) {}

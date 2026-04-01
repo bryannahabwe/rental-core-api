@@ -30,5 +30,6 @@ public class RentalUnit extends BaseEntity {
     private BigDecimal rentAmount;
 
     @Column(nullable = false)
+    @Builder.Default
     private boolean isAvailable = true;
 }
