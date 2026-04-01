@@ -22,10 +22,11 @@ public class RentalUnitService {
     private final RentalUnitRepository rentalUnitRepository;
     private final UserRepository userRepository;
 
-    public PagedResponse<RentalUnitResponse> getAllUnits(Pageable pageable) {
+    public PagedResponse<RentalUnitResponse> getAllUnits(
+            Pageable pageable, String search, Boolean isAvailable) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         Page<RentalUnitResponse> page = rentalUnitRepository
-                .findAllByLandlordId(landlordId, pageable)
+                .findAllByLandlordIdWithSearch(landlordId, search, isAvailable, pageable)
                 .map(RentalUnitResponse::from);
         return PagedResponse.from(page);
     }

@@ -27,14 +27,15 @@ public class TenantController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir) {
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String search) {
 
         Sort sort = sortDir.equalsIgnoreCase("asc")
                 ? Sort.by(sortBy).ascending()
                 : Sort.by(sortBy).descending();
 
         Pageable pageable = PageRequest.of(page, size, sort);
-        return ResponseEntity.ok(tenantService.getAllTenants(pageable));
+        return ResponseEntity.ok(tenantService.getAllTenants(pageable, search));
     }
 
     @GetMapping("/{id}")

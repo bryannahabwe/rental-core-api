@@ -30,15 +30,15 @@ public class RentalAgreementService {
     private final RentalUnitRepository unitRepository;
 
     public PagedResponse<RentalAgreementResponse> getAllAgreements(
-            Pageable pageable, AgreementStatus status) {
+            Pageable pageable, String search, AgreementStatus status) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Page<RentalAgreement> page;
 
         if (status != null) {
-            page = agreementRepository.findAllByLandlordIdAndStatus(landlordId, status, pageable);
+            page = agreementRepository.findAllByLandlordIdWithStatusAndSearch(landlordId, status, search, pageable);
         } else {
-            page = agreementRepository.findAllByLandlordId(landlordId, pageable);
+            page = agreementRepository.findAllByLandlordIdWithSearch(landlordId, search, pageable);
         }
 
         return PagedResponse.from(page.map(RentalAgreementResponse::from));
@@ -99,7 +99,7 @@ public class RentalAgreementService {
             throw new IllegalArgumentException("Agreement is already terminated");
         }
 
-        if (request.moveOutDate().isBefore(agreement.getStartDate())) {
+        if (agreement.getStartDate() != null && request.moveOutDate().isBefore(agreement.getStartDate())) {
             throw new IllegalArgumentException(
                     "Move out date cannot be before the agreement start date");
         }
