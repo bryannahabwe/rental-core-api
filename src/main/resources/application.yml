@@ -30,5 +30,9 @@ server:
 app:
   jwt:
     secret: ${JWT_SECRET}
-    expiry-ms: ${JWT_EXPIRY_MS:900000}
+    expiry-ms: ${JWT_EXPIRY_MS:86400000}
     refresh-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}
+
+logging:
+  level:
+    com.cognix: DEBUG
