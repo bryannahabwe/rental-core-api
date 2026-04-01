@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 @RestController
@@ -29,15 +30,17 @@ public class PaymentController {
             @RequestParam(defaultValue = "paymentDate") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) UUID tenantId,
-            @RequestParam(required = false) UUID agreementId) {
+            @RequestParam(required = false) UUID agreementId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to) {
 
         Sort sort = sortDir.equalsIgnoreCase("asc")
                 ? Sort.by(sortBy).ascending()
                 : Sort.by(sortBy).descending();
-
         Pageable pageable = PageRequest.of(page, size, sort);
         return ResponseEntity.ok(
-                paymentService.getAllPayments(pageable, tenantId, agreementId));
+                paymentService.getAllPayments(pageable, tenantId, agreementId, search, from, to));
     }
 
     @GetMapping("/{id}")

@@ -20,10 +20,10 @@ public class TenantService {
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
 
-    public PagedResponse<TenantResponse> getAllTenants(Pageable pageable) {
+    public PagedResponse<TenantResponse> getAllTenants(Pageable pageable, String search) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         return PagedResponse.from(
-                tenantRepository.findAllByLandlordId(landlordId, pageable)
+                tenantRepository.findAllByLandlordIdWithSearch(landlordId, search, pageable)
                         .map(TenantResponse::from)
         );
     }

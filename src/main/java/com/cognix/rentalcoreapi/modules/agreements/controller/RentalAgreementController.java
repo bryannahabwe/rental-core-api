@@ -30,6 +30,7 @@ public class RentalAgreementController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String search,
             @RequestParam(required = false) AgreementStatus status) {
 
         Sort sort = sortDir.equalsIgnoreCase("asc")
@@ -37,7 +38,7 @@ public class RentalAgreementController {
                 : Sort.by(sortBy).descending();
 
         Pageable pageable = PageRequest.of(page, size, sort);
-        return ResponseEntity.ok(agreementService.getAllAgreements(pageable, status));
+        return ResponseEntity.ok(agreementService.getAllAgreements(pageable, search, status));
     }
 
     @GetMapping("/{id}")

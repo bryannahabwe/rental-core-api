@@ -28,14 +28,16 @@ public class RentalUnitController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir) {
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean isAvailable) {
 
         Sort sort = sortDir.equalsIgnoreCase("asc")
                 ? Sort.by(sortBy).ascending()
                 : Sort.by(sortBy).descending();
 
         Pageable pageable = PageRequest.of(page, size, sort);
-        return ResponseEntity.ok(rentalUnitService.getAllUnits(pageable));
+        return ResponseEntity.ok(rentalUnitService.getAllUnits(pageable, search, isAvailable));
     }
 
     @GetMapping("/{id}")

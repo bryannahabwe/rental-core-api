@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,4 +36,33 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     long countByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
+
+    @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
+            "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
+            "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +
+            "(:search IS NULL OR LOWER(p.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
+            "LOWER(p.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
+    Page<Payment> findAllWithFilters(
+            @Param("landlordId") UUID landlordId,
+            @Param("tenantId") UUID tenantId,
+            @Param("agreementId") UUID agreementId,
+            @Param("search") String search,
+            Pageable pageable
+    );
+
+    @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
+            "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
+            "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +
+            "(:search IS NULL OR LOWER(p.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
+            "LOWER(p.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))) AND " +
+            "p.paymentDate >= :from AND p.paymentDate <= :to")
+    Page<Payment> findAllWithFiltersAndDates(
+            @Param("landlordId") UUID landlordId,
+            @Param("tenantId") UUID tenantId,
+            @Param("agreementId") UUID agreementId,
+            @Param("search") String search,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            Pageable pageable
+    );
 }

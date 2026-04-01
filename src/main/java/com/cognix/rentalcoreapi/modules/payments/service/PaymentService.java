@@ -14,6 +14,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Service
@@ -25,17 +26,19 @@ public class PaymentService {
     private final UserRepository userRepository;
 
     public PagedResponse<PaymentResponse> getAllPayments(
-            Pageable pageable, UUID tenantId, UUID agreementId) {
+            Pageable pageable, UUID tenantId, UUID agreementId,
+            String search, LocalDate from, LocalDate to) {
+
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Page<Payment> page;
 
-        if (tenantId != null) {
-            page = paymentRepository.findAllByLandlordIdAndTenantId(landlordId, tenantId, pageable);
-        } else if (agreementId != null) {
-            page = paymentRepository.findAllByLandlordIdAndAgreementId(landlordId, agreementId, pageable);
+        if (from != null && to != null) {
+            page = paymentRepository.findAllWithFiltersAndDates(
+                    landlordId, tenantId, agreementId, search, from, to, pageable);
         } else {
-            page = paymentRepository.findAllByLandlordId(landlordId, pageable);
+            page = paymentRepository.findAllWithFilters(
+                    landlordId, tenantId, agreementId, search, pageable);
         }
 
         return PagedResponse.from(page.map(PaymentResponse::from));
