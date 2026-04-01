@@ -1,0 +1,1166 @@
+openapi: 3.0.3
+info:
+  title: Rental Management API
+  description: |
+    Multi-tenant SaaS API for rental property management.
+    Each landlord manages their own tenants, units, agreements, and payments
+    in a fully isolated data context.
+
+    ## Authentication
+    All endpoints except `/auth/register`, `/auth/login`, and `/auth/refresh`
+    require a Bearer JWT token in the Authorization header.
+
+    Obtain a token via `POST /auth/login` and pass it as:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+
+    ## Pagination
+    All list endpoints support these query parameters:
+    - `page` — page number, zero-based (default: 0)
+    - `size` — items per page (default: 10)
+    - `sortBy` — field to sort by (default: createdAt)
+    - `sortDir` — sort direction: asc or desc (default: desc)
+
+  version: 1.0.0
+  contact:
+    name: Bryan Nahabwe
+    url: https://github.com/bryannahabwe
+
+servers:
+  - url: http://localhost:8081/api/v1
+    description: Local development
+  - url: https://<your-domain>/api/v1
+    description: Production (Contabo VPS)
+
+tags:
+  - name: Auth
+    description: Landlord registration and authentication
+  - name: Tenants
+    description: Tenant management
+  - name: Units
+    description: Rental unit management
+  - name: Agreements
+    description: Rental agreement management
+  - name: Payments
+    description: Payment recording
+  - name: Reports
+    description: Analytics and reporting
+
+paths:
+
+  # ─── AUTH ───────────────────────────────────────────────
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new landlord account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              name: Bryan Nahabwe
+              phoneNumber: "0771234567"
+              email: bryan@example.com
+              password: secret123
+      responses:
+        '200':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with phone number or email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              phone:
+                summary: Login with phone number
+                value:
+                  username: "0771234567"
+                  password: secret123
+              email:
+                summary: Login with email
+                value:
+                  username: bryan@example.com
+                  password: secret123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ─── TENANTS ─────────────────────────────────────────────
+
+  /tenants:
+    get:
+      tags: [Tenants]
+      summary: List all tenants (paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortDir'
+      responses:
+        '200':
+          description: Paginated list of tenants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedTenantResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Tenants]
+      summary: Create a new tenant
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantRequest'
+            example:
+              name: John Mugisha
+              phone: "0772345678"
+              email: john.mugisha@gmail.com
+              address: Kamwokya, Kampala
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /tenants/{id}:
+    get:
+      tags: [Tenants]
+      summary: Get a single tenant
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Tenant found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags: [Tenants]
+      summary: Update a tenant
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantRequest'
+      responses:
+        '200':
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [Tenants]
+      summary: Delete a tenant
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Tenant deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── UNITS ───────────────────────────────────────────────
+
+  /units:
+    get:
+      tags: [Units]
+      summary: List all rental units (paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortDir'
+      responses:
+        '200':
+          description: Paginated list of units
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedUnitResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Units]
+      summary: Create a new rental unit
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RentalUnitRequest'
+            example:
+              roomNumber: A1
+              description: Single room with bathroom, ground floor
+              rentAmount: 350000
+              isAvailable: true
+      responses:
+        '201':
+          description: Unit created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalUnitResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /units/{id}:
+    get:
+      tags: [Units]
+      summary: Get a single rental unit
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Unit found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalUnitResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags: [Units]
+      summary: Update a rental unit
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RentalUnitRequest'
+      responses:
+        '200':
+          description: Unit updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalUnitResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [Units]
+      summary: Delete a rental unit
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Unit deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── AGREEMENTS ──────────────────────────────────────────
+
+  /agreements:
+    get:
+      tags: [Agreements]
+      summary: List all agreements (paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortDir'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgreementStatus'
+          description: Filter by agreement status
+      responses:
+        '200':
+          description: Paginated list of agreements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedAgreementResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Agreements]
+      summary: Create a new rental agreement
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RentalAgreementRequest'
+            examples:
+              new_tenant:
+                summary: New tenant with all fields
+                value:
+                  tenantId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                  unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+                  startDate: "2026-04-01"
+                  rentAmount: 350000
+                  depositAmount: 700000
+              existing_tenant:
+                summary: Existing tenant — minimal fields
+                value:
+                  tenantId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                  unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+      responses:
+        '201':
+          description: Agreement created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalAgreementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /agreements/{id}:
+    get:
+      tags: [Agreements]
+      summary: Get a single agreement
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Agreement found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalAgreementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags: [Agreements]
+      summary: Update an agreement
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RentalAgreementRequest'
+      responses:
+        '200':
+          description: Agreement updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalAgreementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /agreements/{id}/moveout:
+    patch:
+      tags: [Agreements]
+      summary: Record move-out date and terminate agreement
+      description: |
+        Records the tenant's move-out date and transitions the agreement
+        status to TERMINATED. Also marks the unit as available again.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveOutRequest'
+            example:
+              moveOutDate: "2026-06-30"
+      responses:
+        '200':
+          description: Move-out recorded, agreement terminated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RentalAgreementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── PAYMENTS ────────────────────────────────────────────
+
+  /payments:
+    get:
+      tags: [Payments]
+      summary: List all payments (paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortDir'
+        - name: tenantId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter payments by tenant
+        - name: agreementId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Filter payments by agreement
+      responses:
+        '200':
+          description: Paginated list of payments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedPaymentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Payments]
+      summary: Record a payment
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+            examples:
+              with_reference:
+                summary: Payment with reference
+                value:
+                  agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                  paymentDate: "2026-04-01"
+                  amount: 350000
+                  method: CASH
+                  reference: RCP-001
+                  notes: April rent payment
+              minimal:
+                summary: Minimal payment
+                value:
+                  agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                  paymentDate: "2026-04-01"
+                  amount: 350000
+                  method: CASH
+      responses:
+        '201':
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payments/{id}:
+    get:
+      tags: [Payments]
+      summary: Get a single payment
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Payment found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── REPORTS ─────────────────────────────────────────────
+
+  /reports/summary:
+    get:
+      tags: [Reports]
+      summary: Dashboard summary statistics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Summary stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryResponse'
+              example:
+                totalUnits: 10
+                occupiedUnits: 7
+                availableUnits: 3
+                totalTenants: 9
+                activeAgreements: 7
+                terminatedAgreements: 2
+                totalRevenueAllTime: 4550000.00
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /reports/payments:
+    get:
+      tags: [Reports]
+      summary: Payment report for a date range
+      description: Defaults to current month if no date range is provided.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-04-01"
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-04-30"
+      responses:
+        '200':
+          description: Payment report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReportResponse'
+              example:
+                from: "2026-04-01"
+                to: "2026-04-30"
+                totalPayments: 7
+                totalAmount: 2450000.00
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /reports/occupancy:
+    get:
+      tags: [Reports]
+      summary: Occupancy rate report
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Occupancy report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OccupancyReportResponse'
+              example:
+                totalUnits: 10
+                occupiedUnits: 7
+                availableUnits: 3
+                occupancyRate: 70.00
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+# ─── COMPONENTS ──────────────────────────────────────────
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 0
+
+    Size:
+      name: size
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 10
+
+    SortBy:
+      name: sortBy
+      in: query
+      required: false
+      schema:
+        type: string
+        default: createdAt
+
+    SortDir:
+      name: sortDir
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+
+  responses:
+    BadRequest:
+      description: Validation or business rule error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: BAD_REQUEST
+            message: Unit A1 already has an active agreement
+
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: UNAUTHORIZED
+            message: Invalid or expired token
+
+  schemas:
+
+    # ── Auth ──────────────────────────────────────────────
+
+    RegisterRequest:
+      type: object
+      required: [name, phoneNumber, password]
+      properties:
+        name:
+          type: string
+          example: Bryan Nahabwe
+        phoneNumber:
+          type: string
+          pattern: '^\+?[0-9]{10,15}$'
+          example: "0771234567"
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: bryan@example.com
+        password:
+          type: string
+          minLength: 6
+          example: secret123
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          description: Phone number or email
+          example: "0771234567"
+        password:
+          type: string
+          example: secret123
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        name:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: string
+          nullable: true
+
+    # ── Tenants ───────────────────────────────────────────
+
+    TenantRequest:
+      type: object
+      required: [name, phone]
+      properties:
+        name:
+          type: string
+          example: John Mugisha
+        phone:
+          type: string
+          pattern: '^\+?[0-9]{10,15}$'
+          example: "0772345678"
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: john@example.com
+        address:
+          type: string
+          nullable: true
+          example: Kamwokya, Kampala
+
+    TenantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    PagedTenantResponse:
+      allOf:
+        - $ref: '#/components/schemas/PagedResponse'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/TenantResponse'
+
+    # ── Units ─────────────────────────────────────────────
+
+    RentalUnitRequest:
+      type: object
+      required: [roomNumber, rentAmount]
+      properties:
+        roomNumber:
+          type: string
+          example: A1
+        description:
+          type: string
+          nullable: true
+          example: Single room with bathroom
+        rentAmount:
+          type: number
+          format: decimal
+          example: 350000
+        isAvailable:
+          type: boolean
+          default: true
+
+    RentalUnitResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        roomNumber:
+          type: string
+        description:
+          type: string
+          nullable: true
+        rentAmount:
+          type: number
+          format: decimal
+        isAvailable:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    PagedUnitResponse:
+      allOf:
+        - $ref: '#/components/schemas/PagedResponse'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/RentalUnitResponse'
+
+    # ── Agreements ────────────────────────────────────────
+
+    AgreementStatus:
+      type: string
+      enum: [ACTIVE, TERMINATED]
+
+    RentalAgreementRequest:
+      type: object
+      required: [tenantId, unitId]
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        startDate:
+          type: string
+          format: date
+          nullable: true
+          description: Move-in date. Nullable for existing tenants with unknown move-in date.
+        rentAmount:
+          type: number
+          format: decimal
+          nullable: true
+          description: Agreed rent. Defaults to unit rent amount if not provided.
+          example: 350000
+        depositAmount:
+          type: number
+          format: decimal
+          nullable: true
+          description: Deposit paid. Nullable for existing tenants already inside.
+          example: 700000
+
+    MoveOutRequest:
+      type: object
+      required: [moveOutDate]
+      properties:
+        moveOutDate:
+          type: string
+          format: date
+          example: "2026-06-30"
+
+    RentalAgreementResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        tenantName:
+          type: string
+        unitId:
+          type: string
+          format: uuid
+        roomNumber:
+          type: string
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        moveOutDate:
+          type: string
+          format: date
+          nullable: true
+        rentAmount:
+          type: number
+          format: decimal
+        depositAmount:
+          type: number
+          format: decimal
+          nullable: true
+        status:
+          $ref: '#/components/schemas/AgreementStatus'
+        createdAt:
+          type: string
+          format: date-time
+
+    PagedAgreementResponse:
+      allOf:
+        - $ref: '#/components/schemas/PagedResponse'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/RentalAgreementResponse'
+
+    # ── Payments ──────────────────────────────────────────
+
+    PaymentMethod:
+      type: string
+      enum: [CASH]
+
+    PaymentRequest:
+      type: object
+      required: [agreementId, paymentDate, amount, method]
+      properties:
+        agreementId:
+          type: string
+          format: uuid
+        paymentDate:
+          type: string
+          format: date
+          example: "2026-04-01"
+        amount:
+          type: number
+          format: decimal
+          example: 350000
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        reference:
+          type: string
+          nullable: true
+          example: RCP-001
+        notes:
+          type: string
+          nullable: true
+          example: April rent payment
+
+    PaymentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agreementId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        tenantName:
+          type: string
+        unitId:
+          type: string
+          format: uuid
+        roomNumber:
+          type: string
+        paymentDate:
+          type: string
+          format: date
+        amount:
+          type: number
+          format: decimal
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        reference:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    PagedPaymentResponse:
+      allOf:
+        - $ref: '#/components/schemas/PagedResponse'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentResponse'
+
+    # ── Reports ───────────────────────────────────────────
+
+    SummaryResponse:
+      type: object
+      properties:
+        totalUnits:
+          type: integer
+        occupiedUnits:
+          type: integer
+        availableUnits:
+          type: integer
+        totalTenants:
+          type: integer
+        activeAgreements:
+          type: integer
+        terminatedAgreements:
+          type: integer
+        totalRevenueAllTime:
+          type: number
+          format: decimal
+
+    PaymentReportResponse:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        totalPayments:
+          type: integer
+        totalAmount:
+          type: number
+          format: decimal
+
+    OccupancyReportResponse:
+      type: object
+      properties:
+        totalUnits:
+          type: integer
+        occupiedUnits:
+          type: integer
+        availableUnits:
+          type: integer
+        occupancyRate:
+          type: number
+          format: decimal
+          description: Percentage of occupied units (0.00 - 100.00)
+
+    # ── Shared ────────────────────────────────────────────
+
+    PagedResponse:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 10
+        totalElements:
+          type: integer
+          example: 45
+        totalPages:
+          type: integer
+          example: 5
+        last:
+          type: boolean
+          example: false
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: BAD_REQUEST
+        message:
+          type: string
+          example: Unit A1 already has an active agreement
