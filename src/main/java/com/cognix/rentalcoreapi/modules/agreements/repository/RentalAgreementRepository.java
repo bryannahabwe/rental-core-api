@@ -23,6 +23,9 @@ public interface RentalAgreementRepository extends JpaRepository<RentalAgreement
 
     long countByLandlordIdAndStatus(UUID landlordId, AgreementStatus status);
 
+    Optional<RentalAgreement> findFirstByTenantIdAndLandlordIdAndStatus(
+            UUID tenantId, UUID landlordId, AgreementStatus status);
+
     @Query("SELECT a FROM RentalAgreement a WHERE a.landlord.id = :landlordId AND " +
             "(:search IS NULL OR LOWER(a.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(a.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")

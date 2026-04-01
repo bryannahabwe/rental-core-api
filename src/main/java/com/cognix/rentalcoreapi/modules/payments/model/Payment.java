@@ -46,6 +46,24 @@ public class Payment extends BaseEntity {
     @Column(nullable = false)
     private PaymentMethod method;
 
+    @Column(nullable = false)
+    private Integer periodMonth;
+
+    @Column(nullable = false)
+    private Integer periodYear;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal expectedAmount;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal overpayment = BigDecimal.ZERO;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private PaymentSource source = PaymentSource.CASH;
+
     @Column
     private String reference;
 

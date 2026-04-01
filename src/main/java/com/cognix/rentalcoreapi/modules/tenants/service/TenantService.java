@@ -1,6 +1,10 @@
 package com.cognix.rentalcoreapi.modules.tenants.service;
 
+import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
+import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
+import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
+import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantRequest;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantResponse;
 import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
@@ -8,9 +12,13 @@ import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -19,20 +27,30 @@ public class TenantService {
 
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
+    private final RentalAgreementRepository agreementRepository;
+    private final PaymentRepository paymentRepository;
 
     public PagedResponse<TenantResponse> getAllTenants(Pageable pageable, String search) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        return PagedResponse.from(
-                tenantRepository.findAllByLandlordIdWithSearch(landlordId, search, pageable)
-                        .map(TenantResponse::from)
-        );
+        int currentMonth = LocalDate.now().getMonthValue();
+        int currentYear = LocalDate.now().getYear();
+
+        Page<TenantResponse> responses = tenantRepository
+                .findAllByLandlordIdWithSearch(landlordId, search, pageable)
+                .map(tenant -> enrichWithBalance(tenant, landlordId, currentMonth, currentYear));
+
+        return PagedResponse.from(responses);
     }
 
     public TenantResponse getTenant(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        return tenantRepository.findByIdAndLandlordId(id, landlordId)
-                .map(TenantResponse::from)
+        int currentMonth = LocalDate.now().getMonthValue();
+        int currentYear = LocalDate.now().getYear();
+
+        Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+
+        return enrichWithBalance(tenant, landlordId, currentMonth, currentYear);
     }
 
     public TenantResponse createTenant(TenantRequest request) {
@@ -94,5 +112,53 @@ public class TenantService {
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
 
         tenantRepository.delete(tenant);
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────────────
+
+    private TenantResponse enrichWithBalance(
+            Tenant tenant, UUID landlordId,
+            int currentMonth, int currentYear) {
+
+        Optional<RentalAgreement> activeAgreement = agreementRepository
+                .findFirstByTenantIdAndLandlordIdAndStatus(
+                        tenant.getId(), landlordId, AgreementStatus.ACTIVE);
+
+        if (activeAgreement.isEmpty()) {
+            return TenantResponse.from(tenant);
+        }
+
+        RentalAgreement agreement = activeAgreement.get();
+
+        // Sum all payments for the current period
+        BigDecimal totalPaid = paymentRepository.sumByAgreementAndPeriod(
+                agreement.getId(), currentMonth, currentYear);
+
+        // For EXISTING tenants, apply opening balance credit
+        // Only positive opening balance counts as credit
+        BigDecimal openingCredit = agreement.getOpeningBalance()
+                .max(BigDecimal.ZERO);
+
+        BigDecimal effectivePaid = totalPaid.add(openingCredit);
+        BigDecimal outstanding = agreement.getRentAmount().subtract(effectivePaid);
+
+        // Compute status
+        String periodStatus;
+        if (outstanding.compareTo(BigDecimal.ZERO) <= 0) {
+            periodStatus = "PAID";
+        } else if (totalPaid.compareTo(BigDecimal.ZERO) > 0) {
+            periodStatus = "PARTIAL";
+        } else {
+            periodStatus = "UNPAID";
+        }
+
+        return TenantResponse.from(tenant).withBalance(
+                agreement.getUnit().getRoomNumber(),
+                agreement.getRentAmount(),
+                outstanding.max(BigDecimal.ZERO),
+                periodStatus,
+                currentMonth,
+                currentYear
+        );
     }
 }

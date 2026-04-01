@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.modules.payments.repository;
 
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
+import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -28,15 +29,39 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findAllByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
 
+    // ── Rollover deduplication ──────────────────────────────
+    boolean existsByAgreementIdAndPeriodMonthAndPeriodYearAndSource(
+            UUID agreementId,
+            Integer periodMonth,
+            Integer periodYear,
+            PaymentSource source
+    );
+
+    // ── Period balance calculation ──────────────────────────
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
+            "WHERE p.agreement.id = :agreementId " +
+            "AND p.periodMonth = :month " +
+            "AND p.periodYear = :year")
+    BigDecimal sumByAgreementAndPeriod(
+            @Param("agreementId") UUID agreementId,
+            @Param("month") Integer month,
+            @Param("year") Integer year
+    );
+
+    // ── Reports ─────────────────────────────────────────────
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
             "WHERE p.landlord.id = :landlordId " +
             "AND p.paymentDate BETWEEN :from AND :to")
     BigDecimal sumAmountByLandlordIdAndDateRange(
-            UUID landlordId, LocalDate from, LocalDate to);
+            @Param("landlordId") UUID landlordId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to
+    );
 
     long countByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
 
+    // ── Search + filter ─────────────────────────────────────
     @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
             "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
             "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +

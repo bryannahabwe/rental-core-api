@@ -2,6 +2,7 @@ package com.cognix.rentalcoreapi.modules.payments.dto;
 
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentMethod;
+import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -18,6 +19,12 @@ public record PaymentResponse(
         LocalDate paymentDate,
         BigDecimal amount,
         PaymentMethod method,
+        Integer periodMonth,
+        Integer periodYear,
+        BigDecimal expectedAmount,
+        BigDecimal overpayment,
+        PaymentSource source,
+        String periodStatus,
         String reference,
         String notes,
         LocalDateTime createdAt
@@ -33,9 +40,25 @@ public record PaymentResponse(
                 payment.getPaymentDate(),
                 payment.getAmount(),
                 payment.getMethod(),
+                payment.getPeriodMonth(),
+                payment.getPeriodYear(),
+                payment.getExpectedAmount(),
+                payment.getOverpayment(),
+                payment.getSource(),
+                computePeriodStatus(payment),
                 payment.getReference(),
                 payment.getNotes(),
                 payment.getCreatedAt()
         );
+    }
+
+    private static String computePeriodStatus(Payment payment) {
+        if (payment.getSource() == PaymentSource.ROLLOVER) {
+            return "ROLLOVER";
+        }
+        int cmp = payment.getAmount().compareTo(payment.getExpectedAmount());
+        if (cmp >= 0) return "PAID";
+        if (payment.getAmount().compareTo(BigDecimal.ZERO) == 0) return "UNPAID";
+        return "PARTIAL";
     }
 }
