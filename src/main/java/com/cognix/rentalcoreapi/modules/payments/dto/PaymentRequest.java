@@ -2,28 +2,23 @@ package com.cognix.rentalcoreapi.modules.payments.dto;
 
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentMethod;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
 public record PaymentRequest(
 
-        @NotNull(message = "Agreement is required")
-        UUID agreementId,
+        @NotNull UUID agreementId,
+        @NotNull LocalDate paymentDate,
+        @NotNull BigDecimal amount,
+        @NotNull PaymentMethod method,
 
-        @NotNull(message = "Payment date is required")
-        LocalDate paymentDate,
-
-        @NotNull(message = "Amount is required")
-        @Positive(message = "Amount must be greater than zero")
-        BigDecimal amount,
-
-        @NotNull(message = "Payment method is required")
-        PaymentMethod method,
+        // Period this payment covers
+        @NotNull @Min(1) @Max(12) Integer periodMonth,
+        @NotNull Integer periodYear,
 
         String reference,
-
         String notes
 ) {}

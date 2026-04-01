@@ -2,6 +2,7 @@ package com.cognix.rentalcoreapi.modules.agreements.dto;
 
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
+import com.cognix.rentalcoreapi.modules.agreements.model.TenantType;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -19,7 +20,9 @@ public record RentalAgreementResponse(
         BigDecimal rentAmount,
         BigDecimal depositAmount,
         AgreementStatus status,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        TenantType tenantType,
+        BigDecimal openingBalance
 ) {
     public static RentalAgreementResponse from(RentalAgreement agreement) {
         return new RentalAgreementResponse(
@@ -33,7 +36,9 @@ public record RentalAgreementResponse(
                 agreement.getRentAmount(),
                 agreement.getDepositAmount(),
                 agreement.getStatus(),
-                agreement.getCreatedAt()
+                agreement.getCreatedAt(),
+                agreement.getTenantType(),
+                agreement.getOpeningBalance()
         );
     }
 }

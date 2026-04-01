@@ -5,6 +5,7 @@ import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementResponse;
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
+import com.cognix.rentalcoreapi.modules.agreements.model.TenantType;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
@@ -36,9 +37,11 @@ public class RentalAgreementService {
         Page<RentalAgreement> page;
 
         if (status != null) {
-            page = agreementRepository.findAllByLandlordIdWithStatusAndSearch(landlordId, status, search, pageable);
+            page = agreementRepository.findAllByLandlordIdWithStatusAndSearch(
+                    landlordId, status, search, pageable);
         } else {
-            page = agreementRepository.findAllByLandlordIdWithSearch(landlordId, search, pageable);
+            page = agreementRepository.findAllByLandlordIdWithSearch(
+                    landlordId, search, pageable);
         }
 
         return PagedResponse.from(page.map(RentalAgreementResponse::from));
@@ -55,15 +58,12 @@ public class RentalAgreementService {
     public RentalAgreementResponse createAgreement(RentalAgreementRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        // ensure unit belongs to this landlord
         var unit = unitRepository.findByIdAndLandlordId(request.unitId(), landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Unit not found"));
 
-        // ensure tenant belongs to this landlord
         var tenant = tenantRepository.findByIdAndLandlordId(request.tenantId(), landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
 
-        // ensure unit is not already occupied
         if (agreementRepository.existsByUnitIdAndStatus(request.unitId(), AgreementStatus.ACTIVE)) {
             throw new IllegalArgumentException(
                     "Unit " + unit.getRoomNumber() + " already has an active agreement");
@@ -73,6 +73,17 @@ public class RentalAgreementService {
                 ? request.rentAmount()
                 : unit.getRentAmount();
 
+        // Determine tenant type — default to NEW if not provided
+        TenantType tenantType = request.tenantType() != null
+                ? request.tenantType()
+                : TenantType.NEW;
+
+        // Opening balance only meaningful for EXISTING tenants
+        BigDecimal openingBalance = BigDecimal.ZERO;
+        if (tenantType == TenantType.EXISTING && request.openingBalance() != null) {
+            openingBalance = request.openingBalance();
+        }
+
         RentalAgreement agreement = RentalAgreement.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
                 .tenant(tenant)
@@ -81,10 +92,13 @@ public class RentalAgreementService {
                 .rentAmount(agreedRent)
                 .depositAmount(request.depositAmount())
                 .status(AgreementStatus.ACTIVE)
+                .tenantType(tenantType)
+                .openingBalance(openingBalance)
                 .build();
 
         unit.setAvailable(false);
         unitRepository.save(unit);
+
         return RentalAgreementResponse.from(agreementRepository.save(agreement));
     }
 
@@ -99,7 +113,8 @@ public class RentalAgreementService {
             throw new IllegalArgumentException("Agreement is already terminated");
         }
 
-        if (agreement.getStartDate() != null && request.moveOutDate().isBefore(agreement.getStartDate())) {
+        if (agreement.getStartDate() != null
+                && request.moveOutDate().isBefore(agreement.getStartDate())) {
             throw new IllegalArgumentException(
                     "Move out date cannot be before the agreement start date");
         }
@@ -107,7 +122,6 @@ public class RentalAgreementService {
         agreement.setMoveOutDate(request.moveOutDate());
         agreement.setStatus(AgreementStatus.TERMINATED);
 
-        // mark unit as available again
         var unit = agreement.getUnit();
         unit.setAvailable(true);
         unitRepository.save(unit);

@@ -46,4 +46,13 @@ public class RentalAgreement extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AgreementStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private TenantType tenantType = TenantType.NEW;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal openingBalance = BigDecimal.ZERO;
 }
