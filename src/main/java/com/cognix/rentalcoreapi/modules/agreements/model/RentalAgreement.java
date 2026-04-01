@@ -31,7 +31,7 @@ public class RentalAgreement extends BaseEntity {
     @JoinColumn(name = "unit_id", nullable = false)
     private RentalUnit unit;
 
-    @Column(nullable = false)
+    @Column
     private LocalDate startDate;
 
     @Column
@@ -40,7 +40,7 @@ public class RentalAgreement extends BaseEntity {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal rentAmount;
 
-    @Column(nullable = false, precision = 12, scale = 2)
+    @Column(precision = 12, scale = 2)
     private BigDecimal depositAmount;
 
     @Enumerated(EnumType.STRING)
