@@ -17,4 +17,6 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
     boolean existsByPhoneAndLandlordId(String phone, UUID landlordId);
 
     boolean existsByEmailAndLandlordId(String email, UUID landlordId);
+
+    long countByLandlordId(UUID landlordId);
 }

@@ -15,4 +15,8 @@ public interface RentalUnitRepository extends JpaRepository<RentalUnit, UUID> {
     Optional<RentalUnit> findByIdAndLandlordId(UUID id, UUID landlordId);
 
     boolean existsByRoomNumberAndLandlordId(String roomNumber, UUID landlordId);
+
+    long countByLandlordId(UUID landlordId);
+
+    long countByLandlordIdAndIsAvailable(UUID landlordId, boolean isAvailable);
 }

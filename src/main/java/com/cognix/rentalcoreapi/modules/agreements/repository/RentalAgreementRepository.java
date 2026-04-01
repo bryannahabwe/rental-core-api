@@ -19,4 +19,8 @@ public interface RentalAgreementRepository extends JpaRepository<RentalAgreement
     Optional<RentalAgreement> findByIdAndLandlordId(UUID id, UUID landlordId);
 
     boolean existsByUnitIdAndStatus(UUID unitId, AgreementStatus status);
+
+    long countByLandlordId(UUID landlordId);
+
+    long countByLandlordIdAndStatus(UUID landlordId, AgreementStatus status);
 }

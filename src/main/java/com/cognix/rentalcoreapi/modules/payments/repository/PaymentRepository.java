@@ -32,4 +32,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             "AND p.paymentDate BETWEEN :from AND :to")
     BigDecimal sumAmountByLandlordIdAndDateRange(
             UUID landlordId, LocalDate from, LocalDate to);
+
+    long countByLandlordIdAndPaymentDateBetween(
+            UUID landlordId, LocalDate from, LocalDate to);
 }
