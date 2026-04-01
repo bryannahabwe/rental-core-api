@@ -1,6 +1,7 @@
 # 🏠 Rental Core API
 
-A multi-tenant SaaS backend for rental property management. Each landlord manages their own tenants, units, agreements, and payments in a fully isolated data context.
+A multi-tenant SaaS backend for rental property management. Each landlord manages their own tenants, units, agreements,
+and payments in a fully isolated data context.
 
 Built with **Spring Boot 4.0.x**, **PostgreSQL**, and **Java 25**.
 
