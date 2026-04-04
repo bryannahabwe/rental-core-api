@@ -29,24 +29,17 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findAllByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
 
-    // ── Rollover deduplication ──────────────────────────────
-    boolean existsByAgreementIdAndPeriodMonthAndPeriodYearAndSource(
+    // ── Rollover deduplication — now uses periodStartDate ──
+    boolean existsByAgreementIdAndPeriodStartDateAndSource(
             UUID agreementId,
-            Integer periodMonth,
-            Integer periodYear,
+            LocalDate periodStartDate,
             PaymentSource source
     );
 
-    // ── Period balance calculation ──────────────────────────
+    // ── Cumulative balance — sum ALL payments for an agreement ──
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
-            "WHERE p.agreement.id = :agreementId " +
-            "AND p.periodMonth = :month " +
-            "AND p.periodYear = :year")
-    BigDecimal sumByAgreementAndPeriod(
-            @Param("agreementId") UUID agreementId,
-            @Param("month") Integer month,
-            @Param("year") Integer year
-    );
+            "WHERE p.agreement.id = :agreementId")
+    BigDecimal sumAllByAgreement(@Param("agreementId") UUID agreementId);
 
     // ── Reports ─────────────────────────────────────────────
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
@@ -90,15 +83,4 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("to") LocalDate to,
             Pageable pageable
     );
-
-    boolean existsByAgreementIdAndPeriodStartDateAndSource(
-            UUID agreementId,
-            LocalDate periodStartDate,
-            PaymentSource source
-    );
-
-    // Keep existing sumAllByAgreement
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
-            "WHERE p.agreement.id = :agreementId")
-    BigDecimal sumAllByAgreement(@Param("agreementId") UUID agreementId);
 }
