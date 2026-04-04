@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -130,29 +131,50 @@ public class TenantService {
 
         RentalAgreement agreement = activeAgreement.get();
 
-        // Sum all payments for current period
-        BigDecimal totalPaid = paymentRepository.sumByAgreementAndPeriod(
+        // How many months has this tenant been active?
+        // Count from startDate (or agreement createdAt) to now
+        LocalDate from = agreement.getStartDate() != null
+                ? agreement.getStartDate()
+                : agreement.getCreatedAt().toLocalDate();
+
+        LocalDate now = LocalDate.now();
+
+        // Total months elapsed (inclusive of current month)
+        long totalMonths = ChronoUnit.MONTHS.between(
+                from.withDayOfMonth(1),
+                now.withDayOfMonth(1)
+        ) + 1;
+
+        // Total ever owed = rent * months + arrears from opening balance
+        BigDecimal totalEverOwed = agreement.getRentAmount()
+                .multiply(BigDecimal.valueOf(totalMonths));
+
+        // Add opening arrears (negative opening balance)
+        BigDecimal openingArrears = agreement.getOpeningBalance()
+                .min(BigDecimal.ZERO).abs();
+        totalEverOwed = totalEverOwed.add(openingArrears);
+
+        // Subtract opening credit (positive opening balance)
+        BigDecimal openingCredit = agreement.getOpeningBalance()
+                .max(BigDecimal.ZERO);
+        totalEverOwed = totalEverOwed.subtract(openingCredit);
+
+        // Total ever paid = sum of ALL payments for this agreement
+        BigDecimal totalEverPaid = paymentRepository
+                .sumAllByAgreement(agreement.getId());
+
+        // Outstanding = ever owed - ever paid
+        BigDecimal outstanding = totalEverOwed.subtract(totalEverPaid)
+                .max(BigDecimal.ZERO);
+
+        // Status — based on current month only for display
+        BigDecimal currentMonthPaid = paymentRepository.sumByAgreementAndPeriod(
                 agreement.getId(), currentMonth, currentYear);
 
-        BigDecimal openingBalance = agreement.getOpeningBalance();
-
-        // Opening balance logic:
-        // Positive = credit (reduces outstanding)
-        // Negative = arrears (increases outstanding)
-        BigDecimal openingCredit  = openingBalance.max(BigDecimal.ZERO);   // positive part
-        BigDecimal openingArrears = openingBalance.min(BigDecimal.ZERO).abs(); // negative part as positive
-
-        // outstanding = rent - paid - credit + arrears
-        BigDecimal outstanding = agreement.getRentAmount()
-                .subtract(totalPaid)
-                .subtract(openingCredit)
-                .add(openingArrears);
-
-        // Compute status
         String periodStatus;
-        if (outstanding.compareTo(BigDecimal.ZERO) <= 0) {
+        if (outstanding.compareTo(BigDecimal.ZERO) == 0) {
             periodStatus = "PAID";
-        } else if (totalPaid.compareTo(BigDecimal.ZERO) > 0) {
+        } else if (currentMonthPaid.compareTo(BigDecimal.ZERO) > 0) {
             periodStatus = "PARTIAL";
         } else {
             periodStatus = "UNPAID";
@@ -161,7 +183,7 @@ public class TenantService {
         return TenantResponse.from(tenant).withBalance(
                 agreement.getUnit().getRoomNumber(),
                 agreement.getRentAmount(),
-                outstanding.max(BigDecimal.ZERO),
+                outstanding,
                 periodStatus,
                 currentMonth,
                 currentYear
