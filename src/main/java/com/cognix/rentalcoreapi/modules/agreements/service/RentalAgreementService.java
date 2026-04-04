@@ -4,6 +4,7 @@ import com.cognix.rentalcoreapi.modules.agreements.dto.MoveOutRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementResponse;
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
+import com.cognix.rentalcoreapi.modules.agreements.model.BillingModel;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import com.cognix.rentalcoreapi.modules.agreements.model.TenantType;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
@@ -84,6 +85,17 @@ public class RentalAgreementService {
             openingBalance = request.openingBalance();
         }
 
+        // Determine billing day from startDate
+        int billingDay = 1;
+        if (request.startDate() != null) {
+            billingDay = Math.min(request.startDate().getDayOfMonth(), 28);
+        }
+
+// Billing model — default ADVANCE
+        BillingModel billingModel = request.billingModel() != null
+                ? request.billingModel()
+                : BillingModel.ADVANCE;
+
         RentalAgreement agreement = RentalAgreement.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
                 .tenant(tenant)
@@ -94,8 +106,9 @@ public class RentalAgreementService {
                 .status(AgreementStatus.ACTIVE)
                 .tenantType(tenantType)
                 .openingBalance(openingBalance)
+                .billingDay(billingDay)
+                .billingModel(billingModel)
                 .build();
-
         unit.setAvailable(false);
         unitRepository.save(unit);
 

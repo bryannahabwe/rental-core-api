@@ -19,8 +19,8 @@ public record PaymentResponse(
         LocalDate paymentDate,
         BigDecimal amount,
         PaymentMethod method,
-        Integer periodMonth,
-        Integer periodYear,
+        LocalDate periodStartDate,
+        LocalDate periodEndDate,
         BigDecimal expectedAmount,
         BigDecimal overpayment,
         PaymentSource source,
@@ -29,36 +29,34 @@ public record PaymentResponse(
         String notes,
         LocalDateTime createdAt
 ) {
-    public static PaymentResponse from(Payment payment) {
+    public static PaymentResponse from(Payment p) {
         return new PaymentResponse(
-                payment.getId(),
-                payment.getAgreement().getId(),
-                payment.getTenant().getId(),
-                payment.getTenant().getName(),
-                payment.getUnit().getId(),
-                payment.getUnit().getRoomNumber(),
-                payment.getPaymentDate(),
-                payment.getAmount(),
-                payment.getMethod(),
-                payment.getPeriodMonth(),
-                payment.getPeriodYear(),
-                payment.getExpectedAmount(),
-                payment.getOverpayment(),
-                payment.getSource(),
-                computePeriodStatus(payment),
-                payment.getReference(),
-                payment.getNotes(),
-                payment.getCreatedAt()
+                p.getId(),
+                p.getAgreement().getId(),
+                p.getTenant().getId(),
+                p.getTenant().getName(),
+                p.getUnit().getId(),
+                p.getUnit().getRoomNumber(),
+                p.getPaymentDate(),
+                p.getAmount(),
+                p.getMethod(),
+                p.getPeriodStartDate(),
+                p.getPeriodEndDate(),
+                p.getExpectedAmount(),
+                p.getOverpayment(),
+                p.getSource(),
+                computePeriodStatus(p),
+                p.getReference(),
+                p.getNotes(),
+                p.getCreatedAt()
         );
     }
 
-    private static String computePeriodStatus(Payment payment) {
-        if (payment.getSource() == PaymentSource.ROLLOVER) {
-            return "ROLLOVER";
-        }
-        int cmp = payment.getAmount().compareTo(payment.getExpectedAmount());
+    private static String computePeriodStatus(Payment p) {
+        if (p.getSource() == PaymentSource.ROLLOVER) return "ROLLOVER";
+        int cmp = p.getAmount().compareTo(p.getExpectedAmount());
         if (cmp >= 0) return "PAID";
-        if (payment.getAmount().compareTo(BigDecimal.ZERO) == 0) return "UNPAID";
+        if (p.getAmount().compareTo(BigDecimal.ZERO) == 0) return "UNPAID";
         return "PARTIAL";
     }
 }

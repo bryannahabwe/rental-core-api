@@ -91,6 +91,13 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             Pageable pageable
     );
 
+    boolean existsByAgreementIdAndPeriodStartDateAndSource(
+            UUID agreementId,
+            LocalDate periodStartDate,
+            PaymentSource source
+    );
+
+    // Keep existing sumAllByAgreement
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
             "WHERE p.agreement.id = :agreementId")
     BigDecimal sumAllByAgreement(@Param("agreementId") UUID agreementId);

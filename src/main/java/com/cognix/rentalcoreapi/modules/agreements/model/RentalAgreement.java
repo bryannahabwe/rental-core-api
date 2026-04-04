@@ -55,4 +55,13 @@ public class RentalAgreement extends BaseEntity {
     @Column(nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal openingBalance = BigDecimal.ZERO;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer billingDay = 1;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private BillingModel billingModel = BillingModel.ADVANCE;
 }

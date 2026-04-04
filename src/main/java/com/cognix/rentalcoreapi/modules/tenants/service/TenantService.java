@@ -11,6 +11,7 @@ import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,25 +34,19 @@ public class TenantService {
 
     public PagedResponse<TenantResponse> getAllTenants(Pageable pageable, String search) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        int currentMonth = LocalDate.now().getMonthValue();
-        int currentYear = LocalDate.now().getYear();
 
         Page<TenantResponse> responses = tenantRepository
                 .findAllByLandlordIdWithSearch(landlordId, search, pageable)
-                .map(tenant -> enrichWithBalance(tenant, landlordId, currentMonth, currentYear));
+                .map(tenant -> enrichWithBalance(tenant, landlordId));
 
         return PagedResponse.from(responses);
     }
 
     public TenantResponse getTenant(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        int currentMonth = LocalDate.now().getMonthValue();
-        int currentYear = LocalDate.now().getYear();
-
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
-
-        return enrichWithBalance(tenant, landlordId, currentMonth, currentYear);
+        return enrichWithBalance(tenant, landlordId);
     }
 
     public TenantResponse createTenant(TenantRequest request) {
@@ -117,9 +112,7 @@ public class TenantService {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private TenantResponse enrichWithBalance(
-            Tenant tenant, UUID landlordId,
-            int currentMonth, int currentYear) {
+    private TenantResponse enrichWithBalance(Tenant tenant, UUID landlordId) {
 
         Optional<RentalAgreement> activeAgreement = agreementRepository
                 .findFirstByTenantIdAndLandlordIdAndStatus(
@@ -131,62 +124,46 @@ public class TenantService {
 
         RentalAgreement agreement = activeAgreement.get();
 
-        // How many months has this tenant been active?
-        // Count from startDate (or agreement createdAt) to now
-        LocalDate from = agreement.getStartDate() != null
-                ? agreement.getStartDate()
-                : agreement.getCreatedAt().toLocalDate();
+        // Count billing cycles elapsed and due
+        long cyclesElapsed = BillingCycleUtils.cyclesElapsed(agreement);
 
-        LocalDate now = LocalDate.now();
-
-        // Total months elapsed (inclusive of current month)
-        long totalMonths = ChronoUnit.MONTHS.between(
-                from.withDayOfMonth(1),
-                now.withDayOfMonth(1)
-        ) + 1;
-
-        // Total ever owed = rent * months + arrears from opening balance
+        // Total ever owed
         BigDecimal totalEverOwed = agreement.getRentAmount()
-                .multiply(BigDecimal.valueOf(totalMonths));
+                .multiply(BigDecimal.valueOf(cyclesElapsed));
 
-        // Add opening arrears (negative opening balance)
-        BigDecimal openingArrears = agreement.getOpeningBalance()
-                .min(BigDecimal.ZERO).abs();
-        totalEverOwed = totalEverOwed.add(openingArrears);
+        // Apply opening balance
+        BigDecimal openingCredit  = agreement.getOpeningBalance().max(BigDecimal.ZERO);
+        BigDecimal openingArrears = agreement.getOpeningBalance().min(BigDecimal.ZERO).abs();
+        totalEverOwed = totalEverOwed.subtract(openingCredit).add(openingArrears);
 
-        // Subtract opening credit (positive opening balance)
-        BigDecimal openingCredit = agreement.getOpeningBalance()
-                .max(BigDecimal.ZERO);
-        totalEverOwed = totalEverOwed.subtract(openingCredit);
+        // Total ever paid
+        BigDecimal totalEverPaid = paymentRepository.sumAllByAgreement(agreement.getId());
 
-        // Total ever paid = sum of ALL payments for this agreement
-        BigDecimal totalEverPaid = paymentRepository
-                .sumAllByAgreement(agreement.getId());
-
-        // Outstanding = ever owed - ever paid
+        // Outstanding
         BigDecimal outstanding = totalEverOwed.subtract(totalEverPaid)
                 .max(BigDecimal.ZERO);
 
-        // Status — based on current month only for display
-        BigDecimal currentMonthPaid = paymentRepository.sumByAgreementAndPeriod(
-                agreement.getId(), currentMonth, currentYear);
-
+        // Period status
         String periodStatus;
         if (outstanding.compareTo(BigDecimal.ZERO) == 0) {
             periodStatus = "PAID";
-        } else if (currentMonthPaid.compareTo(BigDecimal.ZERO) > 0) {
+        } else if (totalEverPaid.compareTo(BigDecimal.ZERO) > 0) {
             periodStatus = "PARTIAL";
         } else {
             periodStatus = "UNPAID";
         }
+
+        // Current cycle dates for display
+        LocalDate cycleStart = BillingCycleUtils.currentCycleStart(agreement);
+        LocalDate cycleEnd = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());
 
         return TenantResponse.from(tenant).withBalance(
                 agreement.getUnit().getRoomNumber(),
                 agreement.getRentAmount(),
                 outstanding,
                 periodStatus,
-                currentMonth,
-                currentYear
+                cycleStart,
+                cycleEnd
         );
     }
 }

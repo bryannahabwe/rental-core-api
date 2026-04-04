@@ -12,6 +12,7 @@ import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,7 +38,6 @@ public class PaymentService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Page<Payment> page;
-
         if (from != null && to != null) {
             page = paymentRepository.findAllWithFiltersAndDates(
                     landlordId, tenantId, agreementId, search, from, to, pageable);
@@ -82,8 +82,8 @@ public class PaymentService {
                 .paymentDate(request.paymentDate())
                 .amount(paidAmount)
                 .method(request.method())
-                .periodMonth(request.periodMonth())
-                .periodYear(request.periodYear())
+                .periodStartDate(request.periodStartDate())
+                .periodEndDate(request.periodEndDate())
                 .expectedAmount(expectedAmount)
                 .overpayment(overpayment)
                 .source(PaymentSource.CASH)
@@ -93,11 +93,11 @@ public class PaymentService {
 
         Payment saved = paymentRepository.save(payment);
 
-        // Auto-create rollover for next month if overpaid
+        // Auto-create rollover for next cycle if overpaid
         if (overpayment.compareTo(BigDecimal.ZERO) > 0) {
             createRolloverPayment(
                     agreement, overpayment,
-                    request.periodMonth(), request.periodYear(),
+                    request.periodEndDate().plusDays(1),
                     landlordId);
         }
 
@@ -106,47 +106,44 @@ public class PaymentService {
 
     private void createRolloverPayment(
             RentalAgreement agreement, BigDecimal rolloverAmount,
-            int month, int year, UUID landlordId) {
+            LocalDate nextCycleStart, UUID landlordId) {
 
-        // Calculate next month and year
-        int nextMonth = month == 12 ? 1 : month + 1;
-        int nextYear = month == 12 ? year + 1 : year;
+        int billingDay = agreement.getBillingDay();
+        LocalDate nextCycleEnd = BillingCycleUtils.cycleEnd(nextCycleStart, billingDay);
 
-        // Skip if rollover already exists for next period
+        // Skip if rollover already exists for this cycle
         boolean exists = paymentRepository
-                .existsByAgreementIdAndPeriodMonthAndPeriodYearAndSource(
-                        agreement.getId(), nextMonth, nextYear, PaymentSource.ROLLOVER);
+                .existsByAgreementIdAndPeriodStartDateAndSource(
+                        agreement.getId(), nextCycleStart, PaymentSource.ROLLOVER);
         if (exists) return;
 
         BigDecimal expectedAmount = agreement.getRentAmount();
         BigDecimal actualRollover = rolloverAmount.min(expectedAmount);
-        BigDecimal remainingOverpayment = rolloverAmount.subtract(expectedAmount)
-                .max(BigDecimal.ZERO);
+        BigDecimal remainingOverpayment = rolloverAmount
+                .subtract(expectedAmount).max(BigDecimal.ZERO);
 
         Payment rollover = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
                 .tenant(agreement.getTenant())
                 .unit(agreement.getUnit())
                 .agreement(agreement)
-                .paymentDate(LocalDate.of(nextYear, nextMonth, 1))
+                .paymentDate(nextCycleStart)
                 .amount(actualRollover)
                 .method(PaymentMethod.CASH)
-                .periodMonth(nextMonth)
-                .periodYear(nextYear)
+                .periodStartDate(nextCycleStart)
+                .periodEndDate(nextCycleEnd)
                 .expectedAmount(expectedAmount)
                 .overpayment(remainingOverpayment)
                 .source(PaymentSource.ROLLOVER)
-                .reference("Rollover from " + month + "/" + year)
+                .reference("Rollover from " + nextCycleStart.minusDays(1))
                 .notes(null)
                 .build();
 
         paymentRepository.save(rollover);
 
-        // Chain rollover if still overpaid beyond next month
         if (remainingOverpayment.compareTo(BigDecimal.ZERO) > 0) {
-            createRolloverPayment(
-                    agreement, remainingOverpayment,
-                    nextMonth, nextYear, landlordId);
+            createRolloverPayment(agreement, remainingOverpayment,
+                    nextCycleEnd.plusDays(1), landlordId);
         }
     }
 }
