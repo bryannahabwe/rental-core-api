@@ -47,10 +47,10 @@ public class Payment extends BaseEntity {
     private PaymentMethod method;
 
     @Column(nullable = false)
-    private Integer periodMonth;
+    private LocalDate periodStartDate;
 
     @Column(nullable = false)
-    private Integer periodYear;
+    private LocalDate periodEndDate;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal expectedAmount;

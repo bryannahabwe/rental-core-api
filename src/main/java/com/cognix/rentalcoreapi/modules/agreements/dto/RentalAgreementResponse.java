@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.modules.agreements.dto;
 
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
+import com.cognix.rentalcoreapi.modules.agreements.model.BillingModel;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import com.cognix.rentalcoreapi.modules.agreements.model.TenantType;
 
@@ -22,23 +23,27 @@ public record RentalAgreementResponse(
         AgreementStatus status,
         LocalDateTime createdAt,
         TenantType tenantType,
-        BigDecimal openingBalance
+        BigDecimal openingBalance,
+        Integer billingDay,
+        BillingModel billingModel
 ) {
-    public static RentalAgreementResponse from(RentalAgreement agreement) {
+    public static RentalAgreementResponse from(RentalAgreement a) {
         return new RentalAgreementResponse(
-                agreement.getId(),
-                agreement.getTenant().getId(),
-                agreement.getTenant().getName(),
-                agreement.getUnit().getId(),
-                agreement.getUnit().getRoomNumber(),
-                agreement.getStartDate(),
-                agreement.getMoveOutDate(),
-                agreement.getRentAmount(),
-                agreement.getDepositAmount(),
-                agreement.getStatus(),
-                agreement.getCreatedAt(),
-                agreement.getTenantType(),
-                agreement.getOpeningBalance()
+                a.getId(),
+                a.getTenant().getId(),
+                a.getTenant().getName(),
+                a.getUnit().getId(),
+                a.getUnit().getRoomNumber(),
+                a.getStartDate(),
+                a.getMoveOutDate(),
+                a.getRentAmount(),
+                a.getDepositAmount(),
+                a.getStatus(),
+                a.getCreatedAt(),
+                a.getTenantType(),
+                a.getOpeningBalance(),
+                a.getBillingDay(),
+                a.getBillingModel()
         );
     }
 }

@@ -3,6 +3,7 @@ package com.cognix.rentalcoreapi.modules.tenants.dto;
 import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -13,14 +14,12 @@ public record TenantResponse(
         String email,
         String address,
         LocalDateTime createdAt,
-
-        // Balance fields — null if tenant has no active agreement
         String currentUnit,
         BigDecimal monthlyRent,
         BigDecimal currentBalance,
         String periodStatus,
-        Integer currentPeriodMonth,
-        Integer currentPeriodYear
+        LocalDate currentCycleStart,
+        LocalDate currentCycleEnd
 ) {
     public static TenantResponse from(Tenant tenant) {
         return new TenantResponse(
@@ -30,12 +29,7 @@ public record TenantResponse(
                 tenant.getEmail(),
                 tenant.getAddress(),
                 tenant.getCreatedAt(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
+                null, null, null, null, null, null
         );
     }
 
@@ -44,22 +38,14 @@ public record TenantResponse(
             BigDecimal monthlyRent,
             BigDecimal currentBalance,
             String periodStatus,
-            Integer currentPeriodMonth,
-            Integer currentPeriodYear) {
+            LocalDate currentCycleStart,
+            LocalDate currentCycleEnd) {
 
         return new TenantResponse(
-                this.id,
-                this.name,
-                this.phone,
-                this.email,
-                this.address,
-                this.createdAt,
-                currentUnit,
-                monthlyRent,
-                currentBalance,
-                periodStatus,
-                currentPeriodMonth,
-                currentPeriodYear
+                this.id, this.name, this.phone,
+                this.email, this.address, this.createdAt,
+                currentUnit, monthlyRent, currentBalance,
+                periodStatus, currentCycleStart, currentCycleEnd
         );
     }
 }
