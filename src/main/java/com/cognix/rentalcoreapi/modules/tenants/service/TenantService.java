@@ -130,17 +130,23 @@ public class TenantService {
 
         RentalAgreement agreement = activeAgreement.get();
 
-        // Sum all payments for the current period
+        // Sum all payments for current period
         BigDecimal totalPaid = paymentRepository.sumByAgreementAndPeriod(
                 agreement.getId(), currentMonth, currentYear);
 
-        // For EXISTING tenants, apply opening balance credit
-        // Only positive opening balance counts as credit
-        BigDecimal openingCredit = agreement.getOpeningBalance()
-                .max(BigDecimal.ZERO);
+        BigDecimal openingBalance = agreement.getOpeningBalance();
 
-        BigDecimal effectivePaid = totalPaid.add(openingCredit);
-        BigDecimal outstanding = agreement.getRentAmount().subtract(effectivePaid);
+        // Opening balance logic:
+        // Positive = credit (reduces outstanding)
+        // Negative = arrears (increases outstanding)
+        BigDecimal openingCredit  = openingBalance.max(BigDecimal.ZERO);   // positive part
+        BigDecimal openingArrears = openingBalance.min(BigDecimal.ZERO).abs(); // negative part as positive
+
+        // outstanding = rent - paid - credit + arrears
+        BigDecimal outstanding = agreement.getRentAmount()
+                .subtract(totalPaid)
+                .subtract(openingCredit)
+                .add(openingArrears);
 
         // Compute status
         String periodStatus;
