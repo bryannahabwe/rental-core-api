@@ -59,4 +59,11 @@ public class RentalAgreementController {
             @Valid @RequestBody MoveOutRequest request) {
         return ResponseEntity.ok(agreementService.recordMoveOut(id, request));
     }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<RentalAgreementResponse> updateAgreement(
+            @PathVariable UUID id,
+            @RequestBody RentalAgreementRequest request) {
+        return ResponseEntity.ok(agreementService.updateAgreement(id, request));
+    }
 }

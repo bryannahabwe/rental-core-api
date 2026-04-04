@@ -141,4 +141,33 @@ public class RentalAgreementService {
 
         return RentalAgreementResponse.from(agreementRepository.save(agreement));
     }
+
+    @Transactional
+    public RentalAgreementResponse updateAgreement(UUID id, RentalAgreementRequest request) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
+
+        RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
+                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+
+        // Update allowed fields
+        if (request.rentAmount() != null) {
+            agreement.setRentAmount(request.rentAmount());
+        }
+        if (request.depositAmount() != null) {
+            agreement.setDepositAmount(request.depositAmount());
+        }
+        if (request.billingModel() != null) {
+            agreement.setBillingModel(request.billingModel());
+        }
+        if (request.openingBalance() != null) {
+            agreement.setOpeningBalance(request.openingBalance());
+        }
+        if (request.startDate() != null) {
+            agreement.setStartDate(request.startDate());
+            agreement.setBillingDay(
+                    Math.min(request.startDate().getDayOfMonth(), 28));
+        }
+
+        return RentalAgreementResponse.from(agreementRepository.save(agreement));
+    }
 }
