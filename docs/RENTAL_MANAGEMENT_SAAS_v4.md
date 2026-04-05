@@ -1,6 +1,6 @@
 # RENTAL MANAGEMENT SAAS
 ## Technical Specification Document
-**Version 4.0 — MVP Edition | April 2026 | CONFIDENTIAL**
+**Version 5.0 — MVP Edition | April 2026 | CONFIDENTIAL**
 
 ---
 
@@ -29,13 +29,14 @@ The Rental Management SaaS is a multi-tenant web application that allows landlor
 ### 1.3 Scope — MVP
 The MVP covers the following functional areas:
 
-- Landlord authentication (register, login, token refresh)
-- Tenant management (CRUD + backend search + balance visibility)
+- Landlord authentication (register, login, token refresh, auto-logout on expiry)
+- Tenant management (CRUD + backend search + cumulative balance visibility)
 - Rental unit management (CRUD + search + availability filter)
-- Rental agreement management (NEW / EXISTING tenant type, opening balance, move-out)
-- Payment recording (period-based, overpayment rollover, split payments, date filter)
+- Rental agreement management (NEW/EXISTING tenant type, opening balance, billing model, billing day, move-out, edit)
+- Payment recording (cycle-based periods, overpayment rollover, split payments, date filter)
 - Reporting and analytics dashboard (collection progress, outstanding tenants)
 - Progressive Web App (PWA) — installable on mobile
+- Responsive layout — sidebar on desktop, bottom nav + FAB on mobile
 
 ### 1.4 Out of Scope (MVP)
 
@@ -52,283 +53,253 @@ The MVP covers the following functional areas:
 The system follows a standard three-tier architecture: a React PWA frontend, a Spring Boot REST API backend, and a PostgreSQL relational database. All components are containerized with Docker and deployed on a single Contabo VPS, fronted by an Nginx reverse proxy container.
 
 ### 2.2 Multi-Tenancy Strategy
-The platform uses a shared database, shared schema approach. Every table includes a `landlord_id` foreign key that scopes all data to the authenticated landlord.
-
-- Simpler schema management — Flyway migrations run once against a single schema
-- Lower operational overhead — no per-landlord provisioning required
-- Scales comfortably to thousands of landlords on a single PostgreSQL instance
-- Data leak risk mitigated by strict service-layer convention: all repository queries filter by `landlord_id` extracted from JWT token via `JwtUtils.getCurrentLandlordId()`
+The platform uses a shared database, shared schema approach. Every table includes a `landlord_id` foreign key that scopes all data to the authenticated landlord. Data leak risk is mitigated by strict service-layer convention — all repository queries filter by `landlord_id` extracted from JWT via `JwtUtils.getCurrentLandlordId()`.
 
 ### 2.3 Technology Stack
 
 #### Backend
 
-| Layer | Technology | Rationale |
-|-------|-----------|-----------|
-| Backend Framework | Spring Boot 4.0.x | Structured, production-grade, team's primary stack |
-| Language | Java 25 | Latest stable, modern features |
-| Build Tool | Gradle | Faster builds, flexible DSL |
-| ORM | Spring Data JPA + Hibernate | Native Spring integration |
-| Database | PostgreSQL 16 | Relational model, robust, JSONB support |
-| Migrations | Flyway | Version-controlled SQL migrations |
-| Auth | Spring Security + JWT (jjwt 0.13.0) | Stateless auth for PWA and API clients |
-| Validation | Jakarta Bean Validation | Declarative request validation |
-| API Docs | Springdoc OpenAPI (Swagger UI) | Auto-generated interactive docs |
+| Layer             | Technology                          |
+|-------------------|-------------------------------------|
+| Backend Framework | Spring Boot 4.0.x                   |
+| Language          | Java 25                             |
+| Build Tool        | Gradle                              |
+| ORM               | Spring Data JPA + Hibernate         |
+| Database          | PostgreSQL 16                       |
+| Migrations        | Flyway                              |
+| Auth              | Spring Security + JWT (jjwt 0.13.0) |
+| Validation        | Jakarta Bean Validation             |
+| API Docs          | Springdoc OpenAPI (Swagger UI)      |
 
 #### Frontend
 
-| Layer | Technology | Rationale |
-|-------|-----------|-----------|
-| Framework | React + Vite 8 | Fast builds, component-based |
-| Styling | Tailwind CSS v4 | Mobile-first, utility classes |
-| Server State | React Query v5 | Caching, background sync, loading states |
-| Forms | React Hook Form | Performant, minimal re-renders |
-| Charts | Recharts | Lightweight, composable charts |
-| State Management | Zustand v5 | Auth state, minimal boilerplate |
-| HTTP Client | Axios | Interceptors for JWT attach + auto-refresh |
-| Routing | React Router v7 | Client-side routing, protected routes |
-| PWA | Vite PWA Plugin | Offline capability, installable on mobile |
-| Icons | Lucide React | Consistent, tree-shakeable icon set |
-| Fonts | DM Sans + DM Serif Display | Clean, professional typography |
+| Layer            | Technology                                  |
+|------------------|---------------------------------------------|
+| Framework        | React + Vite 8                              |
+| Styling          | Tailwind CSS v4 + inline styles             |
+| Server State     | React Query v5                              |
+| Forms            | React Hook Form                             |
+| Charts           | Recharts                                    |
+| State Management | Zustand v5 (persisted)                      |
+| HTTP Client      | Axios (interceptors for JWT + auto-refresh) |
+| Routing          | React Router v7 + ProtectedRoute            |
+| PWA              | Vite PWA Plugin                             |
+| Icons            | Lucide React                                |
+| Fonts            | DM Sans + DM Serif Display                  |
 
 #### Infrastructure
 
-| Layer | Technology | Rationale |
-|-------|-----------|-----------|
-| Reverse Proxy | Nginx (Docker container) | Static file serving, API routing, SSL |
-| Containerization | Docker + Docker Compose | Consistent deployment |
-| SSL | Certbot / Let's Encrypt | Free automated HTTPS |
-| CI/CD | GitLab CI | Automated build and deploy on push to main |
-| Hosting | Contabo VPS | Existing VPS, more control |
+| Layer            | Technology               |
+|------------------|--------------------------|
+| Reverse Proxy    | Nginx (Docker container) |
+| Containerization | Docker + Docker Compose  |
+| SSL              | Certbot / Let's Encrypt  |
+| CI/CD            | GitLab CI                |
+| Hosting          | Contabo VPS              |
 
 ---
 
 ## 3. Data Model
 
 ### 3.1 Entity Relationship Overview
-The core data model consists of five entities. Every entity (except Users) carries a `landlord_id` to enforce tenant isolation. All entities extend `BaseEntity` which provides `id` (UUID) and `createdAt` (Timestamp) managed by Spring Data JPA Auditing.
+Five core entities. Every entity (except Users) carries a `landlord_id`. All extend `BaseEntity` (UUID id, createdAt).
 
 ### 3.2 Users (Landlords)
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK, NOT NULL | Primary key |
-| name | VARCHAR(255) | NOT NULL | Full name of landlord |
-| phone_number | VARCHAR(20) | UNIQUE, NOT NULL | Primary login identifier |
-| email | VARCHAR(255) | UNIQUE, NULLABLE | Optional email address |
-| password_hash | VARCHAR(255) | NOT NULL | BCrypt hashed password |
-| created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Account creation timestamp |
+| Column        | Type         | Constraints      |
+|---------------|--------------|------------------|
+| id            | UUID         | PK               |
+| name          | VARCHAR(255) | NOT NULL         |
+| phone_number  | VARCHAR(20)  | UNIQUE, NOT NULL |
+| email         | VARCHAR(255) | UNIQUE, NULLABLE |
+| password_hash | VARCHAR(255) | NOT NULL         |
+| created_at    | TIMESTAMP    | NOT NULL         |
 
 ### 3.3 Rental Units
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK, NOT NULL | Primary key |
-| landlord_id | UUID | FK → users.id, NOT NULL | Owning landlord |
-| room_number | VARCHAR(50) | NOT NULL | Unit identifier (e.g. A1, Room 3) |
-| description | TEXT | NULLABLE | Unit description |
-| rent_amount | DECIMAL(12,2) | NOT NULL | Current listed monthly rent |
-| is_available | BOOLEAN | NOT NULL, DEFAULT TRUE | Availability flag — auto-managed by agreements |
-| created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Record creation time |
+| Column       | Type          | Constraints   |
+|--------------|---------------|---------------|
+| id           | UUID          | PK            |
+| landlord_id  | UUID          | FK → users.id |
+| room_number  | VARCHAR(50)   | NOT NULL      |
+| description  | TEXT          | NULLABLE      |
+| rent_amount  | DECIMAL(12,2) | NOT NULL      |
+| is_available | BOOLEAN       | DEFAULT TRUE  |
+| created_at   | TIMESTAMP     | NOT NULL      |
 
 ### 3.4 Tenants
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK, NOT NULL | Primary key |
-| landlord_id | UUID | FK → users.id, NOT NULL | Owning landlord |
-| name | VARCHAR(255) | NOT NULL | Full name of tenant |
-| phone | VARCHAR(50) | NOT NULL | Phone number |
-| email | VARCHAR(255) | NULLABLE | Email address |
-| address | TEXT | NULLABLE | Home/previous address |
-| created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Record creation time |
+| Column      | Type         | Constraints   |
+|-------------|--------------|---------------|
+| id          | UUID         | PK            |
+| landlord_id | UUID         | FK → users.id |
+| name        | VARCHAR(255) | NOT NULL      |
+| phone       | VARCHAR(50)  | NOT NULL      |
+| email       | VARCHAR(255) | NULLABLE      |
+| address     | TEXT         | NULLABLE      |
+| created_at  | TIMESTAMP    | NOT NULL      |
 
-> Note: Room number is NOT stored on the Tenant entity. The current unit is always derived from the tenant's active Rental Agreement.
+> Room number is NOT stored on Tenant. The current unit is always derived from the active agreement.
 
 ### 3.5 Rental Agreements
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK, NOT NULL | Primary key |
-| landlord_id | UUID | FK → users.id, NOT NULL | Owning landlord |
-| tenant_id | UUID | FK → tenants.id, NOT NULL | Associated tenant |
-| unit_id | UUID | FK → rental_units.id, NOT NULL | Associated unit |
-| start_date | DATE | NULLABLE | Move-in date — nullable for legacy/existing tenants |
-| move_out_date | DATE | NULLABLE | Recorded when tenant actually leaves |
-| rent_amount | DECIMAL(12,2) | NOT NULL | Agreed rent — defaults to unit rent if not specified |
-| deposit_amount | DECIMAL(12,2) | NULLABLE | Deposit paid — nullable for existing tenants |
-| status | VARCHAR(20) | NOT NULL, DEFAULT 'ACTIVE' | ACTIVE / TERMINATED |
-| tenant_type | VARCHAR(20) | NOT NULL, DEFAULT 'NEW' | NEW / EXISTING |
-| opening_balance | DECIMAL(12,2) | NOT NULL, DEFAULT 0 | Financial position at onboarding. Positive = credit, Negative = arrears |
-| created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Record creation time |
+| Column          | Type          | Constraints                | Description                           |
+|-----------------|---------------|----------------------------|---------------------------------------|
+| id              | UUID          | PK                         |                                       |
+| landlord_id     | UUID          | FK → users.id              |                                       |
+| tenant_id       | UUID          | FK → tenants.id            |                                       |
+| unit_id         | UUID          | FK → rental_units.id       |                                       |
+| start_date      | DATE          | NULLABLE                   | Move-in / first billing cycle start   |
+| move_out_date   | DATE          | NULLABLE                   | Set on termination                    |
+| rent_amount     | DECIMAL(12,2) | NOT NULL                   | Agreed monthly rent                   |
+| deposit_amount  | DECIMAL(12,2) | NULLABLE                   |                                       |
+| status          | VARCHAR(20)   | NOT NULL                   | ACTIVE / TERMINATED                   |
+| tenant_type     | VARCHAR(20)   | NOT NULL DEFAULT 'NEW'     | NEW / EXISTING                        |
+| opening_balance | DECIMAL(12,2) | NOT NULL DEFAULT 0         | Positive = credit, Negative = arrears |
+| billing_day     | INT           | NOT NULL DEFAULT 1         | Day of month rent is due (1–28)       |
+| billing_model   | VARCHAR(20)   | NOT NULL DEFAULT 'ADVANCE' | ADVANCE / ARREARS                     |
+| created_at      | TIMESTAMP     | NOT NULL                   |                                       |
 
-> **Tenant Type Logic:**
-> - `NEW` — tenant moving in fresh. Move-in date required, full history from day one.
-> - `EXISTING` — tenant already living there, being onboarded into the system mid-tenancy. Move-in date optional. Opening balance captures their financial position as of onboarding date.
+> **billing_day** is derived automatically from `start_date` (day of month, capped at 28 to avoid February issues). For EXISTING tenants without a start_date, defaults to 1.
 >
-> **Opening Balance:**
-> - Positive (+) = tenant has paid ahead (credit)
-> - Negative (−) = tenant owes arrears (debt)
-> - Zero = fully up to date
-> - Only applied to EXISTING tenants. NEW tenants always start at 0.
-> - Used in outstanding balance calculation: `outstanding = rentAmount - totalPaid - max(0, openingBalance)`
+> **billing_model:**
+> - `ADVANCE` — tenant pays at the START of each cycle. First payment is due on the move-in day.
+> - `ARREARS` — tenant pays at the END of each cycle. First payment is due one full cycle after move-in.
+>
+> **opening_balance:**
+> - Positive = tenant has paid ahead (credit reduces outstanding)
+> - Negative = tenant owes historical arrears (increases outstanding)
+> - Only meaningful for EXISTING tenants. NEW tenants always start at 0.
+> - For EXISTING tenants: set `start_date` to the first cycle you want to track going forward, and set `openingBalance` to the total unpaid amount before that date.
 
 ### 3.6 Payments
 
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | UUID | PK, NOT NULL | Primary key |
-| landlord_id | UUID | FK → users.id, NOT NULL | Owning landlord |
-| tenant_id | UUID | FK → tenants.id, NOT NULL | Paying tenant |
-| unit_id | UUID | FK → rental_units.id, NOT NULL | Unit being paid for |
-| agreement_id | UUID | FK → rental_agreements.id, NOT NULL | Agreement this payment belongs to |
-| payment_date | DATE | NOT NULL | Date payment was received |
-| amount | DECIMAL(12,2) | NOT NULL | Amount paid |
-| method | VARCHAR(50) | NOT NULL, DEFAULT 'CASH' | Payment method (MVP: CASH only) |
-| period_month | INT | NOT NULL | Month this payment covers (1–12) |
-| period_year | INT | NOT NULL | Year this payment covers |
-| expected_amount | DECIMAL(12,2) | NOT NULL | Rent due for this period — copied from agreement at time of payment |
-| overpayment | DECIMAL(12,2) | NOT NULL, DEFAULT 0 | Excess above expected amount |
-| source | VARCHAR(20) | NOT NULL, DEFAULT 'CASH' | CASH / ROLLOVER |
-| reference | VARCHAR(255) | NULLABLE | Receipt or reference number |
-| notes | TEXT | NULLABLE | Additional notes |
-| created_at | TIMESTAMP | NOT NULL, DEFAULT NOW() | Record creation time |
+| Column            | Type          | Constraints               | Description                        |
+|-------------------|---------------|---------------------------|------------------------------------|
+| id                | UUID          | PK                        |                                    |
+| landlord_id       | UUID          | FK → users.id             |                                    |
+| tenant_id         | UUID          | FK → tenants.id           |                                    |
+| unit_id           | UUID          | FK → rental_units.id      |                                    |
+| agreement_id      | UUID          | FK → rental_agreements.id |                                    |
+| payment_date      | DATE          | NOT NULL                  | Date payment was received          |
+| amount            | DECIMAL(12,2) | NOT NULL                  | Amount paid                        |
+| method            | VARCHAR(50)   | NOT NULL DEFAULT 'CASH'   | CASH only (MVP)                    |
+| period_start_date | DATE          | NOT NULL                  | Start of cycle this payment covers |
+| period_end_date   | DATE          | NOT NULL                  | End of cycle this payment covers   |
+| expected_amount   | DECIMAL(12,2) | NOT NULL                  | Rent due for this period           |
+| overpayment       | DECIMAL(12,2) | NOT NULL DEFAULT 0        | Excess above expected              |
+| source            | VARCHAR(20)   | NOT NULL DEFAULT 'CASH'   | CASH / ROLLOVER                    |
+| reference         | VARCHAR(255)  | NULLABLE                  |                                    |
+| notes             | TEXT          | NULLABLE                  |                                    |
+| created_at        | TIMESTAMP     | NOT NULL                  |                                    |
 
-> **Payment Period Logic:**
-> - Each payment records the month and year it covers (`period_month`, `period_year`)
-> - Multiple payments allowed per period per agreement (split payments)
-> - `period_status` is computed dynamically: `PAID` / `PARTIAL` / `UNPAID` / `ROLLOVER`
+> **period_start_date / period_end_date** replace the old `period_month` / `period_year` columns. Periods are now expressed as exact date ranges matching the billing cycle (e.g. Apr 15 – May 14 for a tenant with billing_day = 15).
 >
-> **Overpayment Rollover:**
-> - When `amount > expectedAmount`, `overpayment = amount - expectedAmount`
-> - System auto-creates a ROLLOVER payment for the next month
-> - Rollover chains recursively if overpayment exceeds next month's rent too
-> - Unique index prevents duplicate ROLLOVER records per period per agreement
+> **Overpayment rollover:** when `amount > expectedAmount`, `overpayment = amount - expectedAmount`. A ROLLOVER payment is auto-created for the next cycle. Chains recursively across multiple months.
 >
-> **Split Payments:**
-> - Multiple CASH payments allowed per period — system sums them to determine period status
-> - `PARTIAL` status shown when `SUM(payments for period) < expectedAmount`
+> **Split payments:** Multiple CASH payments per cycle are allowed. System sums them to determine period status.
 
 ### 3.7 Flyway Migrations
 
-| File | Description |
-|------|-------------|
-| V1__create_users.sql | Users table |
-| V2__create_rental_units.sql | Rental units table |
-| V3__create_tenants.sql | Tenants table |
-| V4__create_rental_agreements.sql | Rental agreements table |
-| V5__create_payments.sql | Payments table |
-| V7__make_agreement_fields_nullable.sql | Makes start_date and deposit_amount nullable |
-| V8__add_tenant_type_and_opening_balance.sql | Adds tenant_type and opening_balance to agreements |
-| V9__add_payment_period_fields.sql | Adds period_month, period_year, expected_amount, overpayment, source to payments |
+| File                                        | Description                                                                     |
+|---------------------------------------------|---------------------------------------------------------------------------------|
+| V1__create_users.sql                        | Users table                                                                     |
+| V2__create_rental_units.sql                 | Rental units                                                                    |
+| V3__create_tenants.sql                      | Tenants                                                                         |
+| V4__create_rental_agreements.sql            | Rental agreements                                                               |
+| V5__create_payments.sql                     | Payments                                                                        |
+| V7__make_agreement_fields_nullable.sql      | start_date and deposit_amount nullable                                          |
+| V8__add_tenant_type_and_opening_balance.sql | tenant_type, opening_balance on agreements                                      |
+| V9__add_payment_period_fields.sql           | period_month, period_year, expected_amount, overpayment, source on payments     |
+| V10__add_billing_model_and_day.sql          | billing_day, billing_model on agreements                                        |
+| V11__add_payment_period_dates.sql           | period_start_date, period_end_date on payments; backfill from period_month/year |
 
 ---
 
 ## 4. API Design
 
-### 4.1 Base URL & Versioning
+### 4.1 Base URL
 
 ```
 https://<domain>/api/v1/...
 ```
 
 ### 4.2 Authentication
-All endpoints except `/auth/register`, `/auth/login` and `/auth/refresh` require a Bearer JWT token:
+All endpoints except `/auth/register`, `/auth/login`, `/auth/refresh` require:
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-| Token Type | Expiry | Purpose |
-|-----------|--------|---------|
-| Access Token | 24 hours | API authentication |
-| Refresh Token | 30 days | Obtain new access token |
+| Token         | Expiry   | Purpose                 |
+|---------------|----------|-------------------------|
+| Access Token  | 24 hours | API authentication      |
+| Refresh Token | 30 days  | Obtain new access token |
 
 ### 4.3 Pagination
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| page | 0 | Page number (zero-based) |
-| size | 10 | Items per page |
-| sortBy | createdAt | Field to sort by |
-| sortDir | desc | Sort direction (asc / desc) |
+| Param   | Default   | Description            |
+|---------|-----------|------------------------|
+| page    | 0         | Zero-based page number |
+| size    | 10        | Items per page         |
+| sortBy  | createdAt | Sort field             |
+| sortDir | desc      | asc or desc            |
 
-### 4.4 Search Parameters
-
-| Endpoint | Search Param | Additional Filters |
-|----------|-------------|-------------------|
-| GET /tenants | `search` (name, phone, email) | — |
-| GET /units | `search` (roomNumber, description) | `isAvailable` (boolean) |
-| GET /agreements | `search` (tenantName, roomNumber) | `status` (ACTIVE / TERMINATED) |
-| GET /payments | `search` (tenantName, roomNumber, reference) | `from`, `to` (date range), `tenantId`, `agreementId` |
-
-### 4.5 Endpoint Reference
+### 4.4 Endpoint Reference
 
 #### Auth
 
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| POST | /auth/register | Register a new landlord account | No |
-| POST | /auth/login | Login and receive JWT tokens | No |
-| POST | /auth/refresh | Refresh access token | No |
+| Method | Endpoint       | Description          | Auth |
+|--------|----------------|----------------------|------|
+| POST   | /auth/register | Register landlord    | No   |
+| POST   | /auth/login    | Login                | No   |
+| POST   | /auth/refresh  | Refresh access token | No   |
 
 #### Tenants
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /tenants | List tenants with balance info (paginated + search) |
-| POST | /tenants | Create a tenant |
-| GET | /tenants/{id} | Get a tenant with balance info |
-| PUT | /tenants/{id} | Update a tenant |
-| DELETE | /tenants/{id} | Delete a tenant |
+| Method | Endpoint      | Description                                       |
+|--------|---------------|---------------------------------------------------|
+| GET    | /tenants      | List with cumulative balance (paginated + search) |
+| POST   | /tenants      | Create                                            |
+| GET    | /tenants/{id} | Get with cumulative balance                       |
+| PUT    | /tenants/{id} | Update                                            |
+| DELETE | /tenants/{id} | Delete                                            |
 
-> Each tenant response now includes: `currentUnit`, `monthlyRent`, `currentBalance`, `periodStatus`, `currentPeriodMonth`, `currentPeriodYear` — all computed from their active agreement and current month's payments.
+#### Units
 
-#### Rental Units
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /units | List all units (paginated + search + isAvailable filter) |
-| POST | /units | Create a unit |
-| GET | /units/{id} | Get a unit |
-| PUT | /units/{id} | Update a unit |
-| DELETE | /units/{id} | Delete a unit |
+| Method | Endpoint    | Description                                    |
+|--------|-------------|------------------------------------------------|
+| GET    | /units      | List (paginated + search + isAvailable filter) |
+| POST   | /units      | Create                                         |
+| GET    | /units/{id} | Get                                            |
+| PUT    | /units/{id} | Update                                         |
+| DELETE | /units/{id} | Delete                                         |
 
 #### Agreements
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /agreements | List all agreements (paginated + search + status filter) |
-| POST | /agreements | Create agreement (NEW or EXISTING tenant type) |
-| GET | /agreements/{id} | Get an agreement |
-| PUT | /agreements/{id} | Update an agreement |
-| PATCH | /agreements/{id}/moveout | Record move-out and terminate |
+| Method | Endpoint                 | Description                                                                 |
+|--------|--------------------------|-----------------------------------------------------------------------------|
+| GET    | /agreements              | List (paginated + search + status filter)                                   |
+| POST   | /agreements              | Create (with billingModel, billingDay derived from startDate)               |
+| GET    | /agreements/{id}         | Get                                                                         |
+| PUT    | /agreements/{id}         | Update (billingModel, startDate, rentAmount, depositAmount, openingBalance) |
+| PATCH  | /agreements/{id}/moveout | Record move-out and terminate                                               |
 
 #### Payments
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /payments | List all payments (paginated + search + date filter) |
-| POST | /payments | Record a payment (with period month/year) |
-| GET | /payments/{id} | Get a payment |
+| Method | Endpoint       | Description                                                    |
+|--------|----------------|----------------------------------------------------------------|
+| GET    | /payments      | List (paginated + search + date filter)                        |
+| POST   | /payments      | Record (periodStartDate + periodEndDate instead of month/year) |
+| GET    | /payments/{id} | Get                                                            |
 
 #### Reports
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /reports/summary | Dashboard summary stats |
-| GET | /reports/payments | Payment report (date range) |
-| GET | /reports/occupancy | Occupancy rate report |
-
-### 4.6 Standard Error Response
-
-```json
-{
-  "success": false,
-  "error": "BAD_REQUEST",
-  "message": "Unit A1 already has an active agreement"
-}
-```
+| Method | Endpoint           | Description                 |
+|--------|--------------------|-----------------------------|
+| GET    | /reports/summary   | Dashboard stats             |
+| GET    | /reports/payments  | Payment report (date range) |
+| GET    | /reports/occupancy | Occupancy rate              |
 
 ---
 
@@ -336,131 +307,168 @@ Authorization: Bearer <access_token>
 
 ### 5.1 Design System
 
-- **Primary color:** Deep Teal (`#0F6E56` / `#0a4a38`)
-- **Font:** DM Sans (UI) + DM Serif Display (logo/display)
-- **Style:** Clean white surfaces, dark teal sidebar, subtle borders
-- **Layout:** Fixed sidebar (desktop) + bottom nav (mobile) — fully responsive PWA
+- **Primary:** Deep Teal (`#0F6E56` / `#0a4a38`)
+- **Font:** DM Sans (UI) + DM Serif Display (logo)
+- **Layout:** Fixed sidebar (desktop 768px+) + bottom nav + FAB (mobile)
+- **Responsive:** CSS classes `desktop-table`, `desktop-topbar`, `mobile-cards`, `mobile-topbar`, `sidebar-desktop`, `bottom-nav`, `page-content`, `main-content`
 
 ### 5.2 Project Structure
 
 ```
-rental-frontend/
-├── src/
-│   ├── components/
-│   │   ├── layout/     ← Sidebar, BottomNav, PageWrapper, ProtectedRoute
-│   │   └── ui/         ← Shared UI components
-│   ├── pages/          ← One file per route
-│   ├── hooks/          ← React Query hooks per module
-│   ├── services/       ← Axios API calls per module
-│   ├── store/          ← Zustand auth store (persisted to localStorage)
-│   └── utils/          ← formatCurrency, formatDate
-├── public/
-│   ├── icons/          ← PWA icons (192x192, 512x512)
-│   └── favicon.ico
-├── Dockerfile
-├── nginx.conf
-├── .gitlab-ci.yml
-├── .env.production
-└── vite.config.js
+src/
+├── components/
+│   ├── layout/   ← PageWrapper, Sidebar, BottomNav, ProtectedRoute
+│   └── ui/       ← BottomSheet, TenantDetailSheet, UnitDetailSheet,
+│                    AgreementDetailSheet, PaymentDetailSheet
+├── pages/        ← Dashboard, Tenants, Units, Agreements, Payments, Reports
+├── hooks/        ← useTenants, useUnits, useAgreements, usePayments, useReports
+├── services/     ← api.js (Axios), authService, tenantsService, unitsService,
+│                    agreementsService, paymentsService, reportsService
+└── store/        ← authStore (Zustand + persist)
 ```
 
 ### 5.3 Key Architecture Decisions
 
-| Decision | Choice | Reason |
-|----------|--------|--------|
-| Auth state | Zustand + localStorage persist | Survives page refresh, zero DB calls |
-| Server state | React Query v5 | Caching, background refetch, loading states |
-| HTTP client | Axios + interceptors | Auto-attach JWT, auto-refresh on 401 |
-| Routing | React Router v7 + ProtectedRoute | Mirrors JwtAuthFilter on backend |
-| Search | Backend search via query params + debounce | Works across all pages, not just current page |
-| CSS approach | Inline styles | Tailwind v4 resets browser defaults aggressively |
-| PWA | Vite PWA Plugin + Workbox NetworkFirst | Offline API caching, installable on mobile |
-| Balance visibility | Enriched TenantResponse | One API call returns tenant + balance data |
+| Decision          | Choice                           | Reason                               |
+|-------------------|----------------------------------|--------------------------------------|
+| Auth state        | Zustand + localStorage           | Survives page refresh                |
+| Server state      | React Query v5                   | Caching, background refetch          |
+| HTTP client       | Axios + interceptors             | Auto-attach JWT, auto-refresh on 401 |
+| Token expiry      | Auto-logout + redirect to /login | No empty broken screens              |
+| CSS approach      | Inline styles                    | Tailwind v4 resets browser defaults  |
+| Search            | Backend JPQL + 400ms debounce    | Works across all pages               |
+| Balance           | Cumulative across all cycles     | Unpaid months carry forward          |
+| Mobile nav        | Bottom nav (6 items) + FAB       | Standard mobile PWA pattern          |
+| Mobile drill-down | Bottom sheet on card tap         | Progressive disclosure               |
 
 ### 5.4 Pages
 
-| Page | Route | Features |
-|------|-------|---------|
-| Login | /login | Phone or email login, JWT storage, redirect to dashboard |
-| Register | /register | Landlord registration, redirect to login |
-| Dashboard | /dashboard | Summary stats, monthly collection progress, outstanding tenants, recent payments |
-| Tenants | /tenants | CRUD, search, payment status filter (ALL/PAID/PARTIAL/UNPAID), balance columns |
-| Units | /units | CRUD, search, available/occupied filter, toggle |
-| Agreements | /agreements | Create (NEW/EXISTING toggle, opening balance), search, status filter, move-out |
-| Payments | /payments | Record (period month/year, overpayment warning, partial warning), search, date filter |
-| Reports | /reports | Summary cards, occupancy bar, payment chart |
+| Page       | Route       | Key Features                                                                                                      |
+|------------|-------------|-------------------------------------------------------------------------------------------------------------------|
+| Login      | /login      | Phone or email, JWT storage                                                                                       |
+| Register   | /register   | Landlord registration                                                                                             |
+| Dashboard  | /dashboard  | Stats, collection progress bar, outstanding tenants, recent payments. Desktop table + mobile cards                |
+| Tenants    | /tenants    | CRUD, search, status filter (ALL/PAID/PARTIAL/UNPAID), cumulative balance, progress bar, mobile drill-down        |
+| Units      | /units      | CRUD, search, available/occupied filter, mobile drill-down                                                        |
+| Agreements | /agreements | Create/Edit (billing model toggle, billing day hint, opening balance), move-out, status filter, mobile drill-down |
+| Payments   | /payments   | Record (cycle date picker), search, date filter, mobile drill-down                                                |
+| Reports    | /reports    | Summary cards, occupancy bar, payment chart, date filter                                                          |
 
-### 5.5 Balance Computation Flow
+### 5.5 PageWrapper
+
+`PageWrapper` accepts three props:
+- `title` — shown in both desktop and mobile headers
+- `actions` — desktop button(s) shown top-right on desktop
+- `mobileAction` — FAB shown bottom-right on mobile (circular + button)
+
+Mobile header shows title + avatar only. Actions never appear in mobile header.
+
+### 5.6 Mobile Detail Sheets
+
+Tapping any mobile card opens a `BottomSheet` with full record details fetched from the individual GET endpoint. Actions (Edit, Delete, Move-out) live inside the sheet — not on the card.
+
+Components: `TenantDetailSheet`, `UnitDetailSheet`, `AgreementDetailSheet`, `PaymentDetailSheet`.
+
+### 5.7 Billing Cycle Display
+
+All payment periods are displayed as exact cycle date ranges:
+```
+Apr 15 – May 14   (billing_day = 15)
+Apr 1 – Apr 30    (billing_day = 1)
+```
+
+Helper functions used across all pages:
+```js
+formatCycleDate(dateStr)  // "Apr 15"
+formatCycle(start, end)   // "Apr 15 – May 14"
+```
+
+### 5.8 Cumulative Balance Computation Flow
 
 ```
 GET /tenants (or /tenants/{id})
-  → For each tenant, TenantService:
-      1. Find active agreement via findFirstByTenantIdAndLandlordIdAndStatus()
+  → TenantService.enrichWithBalance():
+      1. Find active agreement
       2. If none → return base tenant (balance fields = null)
-      3. If found:
-         a. SUM payments for current month/year via sumByAgreementAndPeriod()
-         b. Apply opening balance credit: effectivePaid = totalPaid + max(0, openingBalance)
-         c. outstanding = rentAmount - effectivePaid
-         d. Compute status: PAID / PARTIAL / UNPAID
-      4. Return enriched TenantResponse via withBalance()
+      3. cyclesElapsed = BillingCycleUtils.cyclesElapsed(agreement)
+      4. totalEverOwed = rentAmount × cyclesElapsed
+      5. openingCredit  = max(0, openingBalance)
+      6. openingArrears = abs(min(0, openingBalance))
+      7. totalEverOwed  = totalEverOwed - openingCredit + openingArrears
+      8. totalEverPaid  = sumAllByAgreement(agreementId)
+      9. outstanding    = max(0, totalEverOwed - totalEverPaid)
+     10. currentCycleStart/End from BillingCycleUtils
+     11. Return enriched TenantResponse
 ```
 
-### 5.6 Overpayment Rollover Flow
+### 5.9 BillingCycleUtils (Backend)
+
+Located at `shared/util/BillingCycleUtils.java`.
+
+Key methods:
+- `currentCycleStart(agreement)` — finds the current cycle start based on billing_day and today
+- `cycleEnd(cycleStart, billingDay)` — returns day before next cycle start
+- `cyclesElapsed(agreement)` — counts due cycles:
+    - ADVANCE: current cycle immediately due, includes current
+    - ARREARS: only completed cycles are due
+- Guard: if `startDate` is in the future, returns 0
+- Max billing_day = 28 to avoid February issues
+
+### 5.10 Overpayment Rollover Flow
 
 ```
-POST /payments (amount > agreement.rentAmount)
+POST /payments (amount > rentAmount)
   → PaymentService:
-      1. Save CASH payment with overpayment = amount - expectedAmount
-      2. Call createRolloverPayment(agreement, overpayment, month, year)
-      3. createRolloverPayment:
-         a. Calculate next month/year
-         b. Check if ROLLOVER already exists for that period (skip if yes)
-         c. actualRollover = min(overpayment, rentAmount)
-         d. remainingOverpayment = overpayment - rentAmount (if any)
-         e. Save ROLLOVER payment for next period
-         f. Recurse if remainingOverpayment > 0 (chains across months)
+      1. Save CASH payment, overpayment = amount - rentAmount
+      2. nextCycleStart = periodEndDate + 1 day
+      3. createRolloverPayment(agreement, overpayment, nextCycleStart)
+      4. createRolloverPayment:
+         a. Check duplicate — existsByAgreementIdAndPeriodStartDateAndSource()
+         b. actualRollover = min(overpayment, rentAmount)
+         c. remainingOverpayment = overpayment - rentAmount (if any)
+         d. Save ROLLOVER payment for next cycle
+         e. Recurse if remainingOverpayment > 0
 ```
+
+### 5.11 Token Expiry Handling
+
+Axios response interceptor handles 401 responses:
+1. Try to refresh using stored `refreshToken` via `/auth/refresh`
+2. If refresh succeeds — store new `accessToken`, retry original request silently
+3. If refresh fails (token expired or missing) — call `logout()`, redirect to `/login`
+4. `ProtectedRoute` additionally redirects to `/login` if `accessToken` is null
 
 ---
 
 ## 6. Security
 
 ### 6.1 JWT Strategy
-- Access tokens signed with HS512, contain `userId` (landlordId) and `sub` (username)
-- `JwtAuthFilter` intercepts every request, validates token, populates SecurityContext — no DB call
-- `JwtUtils.getCurrentLandlordId()` reads landlordId from SecurityContext in any service method
-- Frontend: Axios request interceptor attaches Bearer token to every request
-- Frontend: Axios response interceptor auto-refreshes token on 401 and retries original request
+- Access tokens signed with HS512, contain `userId` (landlordId)
+- `JwtAuthFilter` validates every request, populates SecurityContext — no DB call
+- `JwtUtils.getCurrentLandlordId()` reads landlordId from SecurityContext
+- Frontend: request interceptor attaches Bearer token
+- Frontend: response interceptor auto-refreshes on 401, auto-logouts on refresh failure
 
-### 6.2 AuthenticatedUser
-
-```java
-public record AuthenticatedUser(UUID landlordId, String username) implements UserDetails {}
-```
+### 6.2 Password Encoding
+BCrypt. Plain text never stored or logged.
 
 ### 6.3 CORS
-Allowed origins: `http://localhost:5173` (dev), `https://yourdomain.com` (production)
-
-### 6.4 Password Encoding
-Passwords hashed using `BCryptPasswordEncoder`. Plain text never stored or logged.
+Allowed: `http://localhost:5173` (dev), `https://yourdomain.com` (prod)
 
 ---
 
 ## 7. Infrastructure & Deployment
 
-### 7.1 Contabo VPS Layout
+### 7.1 VPS Layout
 
 ```
 Contabo VPS
 ├── Nginx container (ports 80 / 443)
-│   ├── Proxies / → rental-frontend (port 3000)
-│   └── Proxies /api/ → rental-backend (port 8081)
-├── Docker Compose
-│   ├── rental-backend (port 8081)
-│   ├── rental-frontend (port 3000)
-│   └── postgres (port 5432, internal only)
-├── cognix_network (external Docker network)
-└── Certbot — auto-renew Let's Encrypt SSL
+│   ├── / → rental-frontend (port 3000)
+│   └── /api/ → rental-backend (port 8081)
+├── rental-backend (port 8081)
+├── rental-frontend (port 3000)
+└── postgres (port 5432, internal only)
 ```
 
 ### 7.2 Frontend Dockerfile
@@ -480,214 +488,116 @@ EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-### 7.3 Frontend nginx.conf
+### 7.3 Environment Variables
 
-```nginx
-server {
-    listen 80;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-}
-```
-
-### 7.4 Docker Compose
-
-```yaml
-services:
-  rental-backend:
-    build: .
-    ports:
-      - "8081:8081"
-    environment:
-      DB_URL: ${DB_URL}
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRY_MS: ${JWT_EXPIRY_MS}
-      JWT_REFRESH_EXPIRY_MS: ${JWT_REFRESH_EXPIRY_MS}
-    networks:
-      - cognix_network
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: '0.5'
-
-  rental-frontend:
-    build:
-      context: ./rental-frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:80"
-    networks:
-      - cognix_network
-    restart: unless-stopped
-
-networks:
-  cognix_network:
-    external: true
-```
-
-### 7.5 GitLab CI — Frontend
-
-```yaml
-stages:
-  - deploy
-
-deploy:
-  stage: deploy
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache openssh-client
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - echo "$SERVER_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519
-    - chmod 600 ~/.ssh/id_ed25519
-    - ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
-  script:
-    - ssh root@$SERVER_IP "cd /opt/cognix/rental-frontend &&
-        git pull &&
-        docker compose -f /opt/cognix/docker-compose.yml up -d --build rental-frontend"
-  only:
-    - main
-```
-
-### 7.6 Environment Variables
-
-| Variable | Description | Used By |
-|----------|-------------|---------|
-| DB_URL | PostgreSQL JDBC connection string | Backend |
-| DB_USERNAME | Database user | Backend |
-| DB_PASSWORD | Database password | Backend |
-| JWT_SECRET | HS512 signing secret (min 256 bits) | Backend |
-| JWT_EXPIRY_MS | Access token expiry in ms (default: 86400000) | Backend |
-| JWT_REFRESH_EXPIRY_MS | Refresh token expiry in ms (default: 2592000000) | Backend |
-| VITE_API_BASE_URL | Production API base URL | Frontend (.env.production) |
-| SERVER_SSH_KEY | Base64 encoded SSH private key | GitLab CI |
-| SERVER_IP | Contabo VPS IP address | GitLab CI |
+| Variable              | Used By   |
+|-----------------------|-----------|
+| DB_URL                | Backend   |
+| DB_USERNAME           | Backend   |
+| DB_PASSWORD           | Backend   |
+| JWT_SECRET            | Backend   |
+| JWT_EXPIRY_MS         | Backend   |
+| JWT_REFRESH_EXPIRY_MS | Backend   |
+| VITE_API_BASE_URL     | Frontend  |
+| SERVER_SSH_KEY        | GitLab CI |
+| SERVER_IP             | GitLab CI |
 
 ---
 
-## 8. Development Plan
+## 8. Development Plan — Status
 
-### 8.1 Build Order — Status
-
-| Phase | Task | Status |
-|-------|------|--------|
-| 1 | Spring Boot project setup + Gradle config | ✅ Done |
-| 2 | Flyway migrations V1–V7 | ✅ Done |
-| 3 | Auth module (register, login, JWT) | ✅ Done |
-| 4 | Units CRUD + pagination | ✅ Done |
-| 5 | Tenants CRUD + pagination | ✅ Done |
-| 6 | Agreements CRUD + move-out endpoint | ✅ Done |
-| 7 | Payments CRUD + pagination | ✅ Done |
-| 8 | Reports endpoints | ✅ Done |
-| 9 | Backend search — all four endpoints | ✅ Done |
-| 10 | Docker deployment on Contabo VPS | ✅ Done |
-| 11 | Frontend — Auth screens (Login, Register) | ✅ Done |
-| 12 | Frontend — Layout shell (Sidebar, BottomNav, PageWrapper) | ✅ Done |
-| 13 | Frontend — Dashboard | ✅ Done |
-| 14 | Frontend — All CRUD pages | ✅ Done |
-| 15 | Frontend — Reports page | ✅ Done |
-| 16 | Frontend — Search & filter on all pages | ✅ Done |
-| 17 | PWA configuration | ✅ Done |
-| 18 | V8 migration — tenant_type + opening_balance on agreements | ✅ Done |
-| 19 | V9 migration — period fields + overpayment + source on payments | ✅ Done |
-| 20 | TenantType + PaymentSource enums | ✅ Done |
-| 21 | Agreement NEW/EXISTING flow + opening balance | ✅ Done |
-| 22 | Payment period recording + overpayment rollover | ✅ Done |
-| 23 | Tenant balance enrichment in TenantService | ✅ Done |
-| 24 | Frontend — Agreement modal NEW/EXISTING toggle | ✅ Done |
-| 25 | Frontend — Payment modal period + overpayment warning | ✅ Done |
-| 26 | Frontend — Tenants page balance columns + status filter | ✅ Done |
-| 27 | Frontend — Dashboard collection progress + outstanding section | ✅ Done |
-| 28 | GitLab CI for frontend | ⏳ In Progress |
-| 29 | Nginx reverse proxy config + SSL | ⏳ In Progress |
+| Phase | Task                                                    | Status        |
+|-------|---------------------------------------------------------|---------------|
+| 1–10  | Core backend (auth, CRUD, search, Docker)               | ✅ Done        |
+| 11–17 | Frontend (auth, layout, all pages, PWA)                 | ✅ Done        |
+| 18    | V8 migration — tenant_type + opening_balance            | ✅ Done        |
+| 19    | V9 migration — payment period fields                    | ✅ Done        |
+| 20    | Agreement NEW/EXISTING + opening balance flow           | ✅ Done        |
+| 21    | Payment period recording + overpayment rollover         | ✅ Done        |
+| 22    | Tenant cumulative balance enrichment                    | ✅ Done        |
+| 23    | Frontend — agreement modal NEW/EXISTING + billing model | ✅ Done        |
+| 24    | Frontend — payment cycle date picker                    | ✅ Done        |
+| 25    | Frontend — tenant balance progress bar                  | ✅ Done        |
+| 26    | Frontend — dashboard mobile optimisation                | ✅ Done        |
+| 27    | Frontend — mobile card drill-down (bottom sheets)       | ✅ Done        |
+| 28    | V10 migration — billing_day + billing_model             | ✅ Done        |
+| 29    | V11 migration — period_start_date + period_end_date     | ✅ Done        |
+| 30    | BillingCycleUtils — ADVANCE/ARREARS cycle calculation   | ✅ Done        |
+| 31    | Frontend — cycle date display (Apr 15 – May 14)         | ✅ Done        |
+| 32    | Frontend — edit agreement modal                         | ✅ Done        |
+| 33    | Token expiry — auto-logout + redirect to login          | ✅ Done        |
+| 34    | GitLab CI frontend deployment                           | ⏳ In Progress |
+| 35    | Nginx reverse proxy + SSL                               | ⏳ In Progress |
 
 ---
 
 ## 9. Engineering Conventions
 
-### 9.1 Backend
+### Backend
+- Every service method calls `JwtUtils.getCurrentLandlordId()` — never from request body
+- All entities extend `BaseEntity` (id: UUID, createdAt via JPA Auditing)
+- DTOs for all API request/response — entities never exposed directly
+- Flyway migrations: `V{n}__{description}.sql`
+- All monetary values: `DECIMAL(12,2)` — no floating point
+- JPQL search: `CAST(:param AS string)` to avoid PostgreSQL bytea errors
+- Nullable date params in JPQL: separate repository methods
+- `@Builder.Default` on Lombok builder fields with default values
+- Opening balance only applied for `EXISTING` tenants
+- Rollover uses unique index: `(agreement_id, period_start_date, source=ROLLOVER)`
+- `sumAllByAgreement()` uses `COALESCE(SUM(...), 0)` to return zero not null
+- `billing_day` derived from `start_date`, capped at 28 — never stored as user input
+- `billing_day` defaults to 1 for EXISTING tenants without a start_date
+- ARREARS: only completed cycles are due — current in-progress cycle not counted
+- ADVANCE: current cycle is due immediately from billing day
+- Future `start_date` guard: cyclesElapsed returns 0 if startDate > today
 
-- Every service method calls `JwtUtils.getCurrentLandlordId()` — `landlord_id` never comes from request body
-- All entities extend `BaseEntity` (id: UUID, createdAt: Timestamp via JPA Auditing)
-- Use DTOs for all API request/response — JPA entities never exposed directly
-- Flyway migration files follow naming: `V{n}__{description}.sql`
-- Agreement termination always explicit — triggered by landlord recording move-out date
-- All monetary values stored as `DECIMAL(12,2)` — no floating point
-- JPQL search queries use `CAST(:param AS string)` to avoid PostgreSQL `bytea` type errors
-- Nullable date params in JPQL use separate repository methods to avoid `cannot cast bytea to date`
-- Move-out date validation guards against null `startDate` before comparing dates
-- `@Builder.Default` required on Lombok builder fields with default values
-- Opening balance only applied for `EXISTING` tenants — `NEW` tenants always start at zero
-- Rollover payments use a unique index to prevent duplicates per period per agreement
-- Rollover chains recursively across months if overpayment exceeds multiple months' rent
-- `sumByAgreementAndPeriod()` uses `COALESCE(SUM(...), 0)` to return zero instead of null
-
-### 9.2 Frontend
-
-- All API calls go through the central Axios instance in `services/api.js`
-- JWT token attached via request interceptor — never manually in individual calls
-- Token refresh handled automatically via response interceptor on 401
-- React Query query keys follow pattern: `['resource', params]`
-- Search uses 400ms debounce to avoid excessive API calls while typing
-- Inline styles used throughout to avoid Tailwind v4 CSS reset issues
-- `invalidateQueries` calls prefixed with `void` to suppress ESLint promise warnings
-- `isAvailable` toggle in UnitModal uses `useState` — never DOM manipulation
-- Auth state persisted to `localStorage` via Zustand `persist` middleware
-- Overpayment and underpayment warnings computed in real time from watched form values
-- Balance columns show red for outstanding, green "Paid up" for zero balance
-- Dashboard outstanding section only renders when at least one tenant has UNPAID/PARTIAL status
-- Monthly collection progress bar computed from tenant list: `totalExpected - totalOutstanding`
+### Frontend
+- All API calls via central Axios instance in `services/api.js`
+- JWT attached via request interceptor
+- Token refresh on 401 via response interceptor — auto-logout on refresh failure
+- `ProtectedRoute` redirects to `/login` if no accessToken
+- React Query keys: `['resource', params]`
+- 400ms debounce on all search inputs
+- Inline styles throughout (Tailwind v4 resets)
+- `nullIfEmpty` converts `""` to `null` for optional fields in all onSubmit handlers
+- `void queryClient.invalidateQueries(...)` to suppress ESLint promise warnings
+- Balance columns: red for outstanding, green "Paid up" for zero
+- Period display: `formatCycle(periodStartDate, periodEndDate)` — never month/year
+- `generateCycles(agreement)` produces last 6 billing cycles for the cycle picker
+- `getOrdinal(n)` formats billing day as 1st, 2nd, 3rd, 4th, 15th etc.
+- Mobile cards are tappable — bottom sheet opens on tap, not inline expand
+- Edit/Delete/Move-out actions live inside detail sheets, not on cards
+- FAB (circular +) for mobile create actions — never in mobile header
+- Mobile header: title + avatar only — no action buttons
 
 ---
 
 ## 10. Architecture Decisions Log
 
-| Decision | Choice Made | Rejected Alternative | Reason |
-|----------|------------|---------------------|--------|
-| Multi-tenancy | Shared schema + landlord_id | Schema-per-landlord | Simpler ops, sufficient isolation for MVP |
-| Backend | Spring Boot 4.0.x + Java 25 | Node.js + Express | Team's primary expertise |
-| Build tool | Gradle | Maven | Faster builds, flexible DSL |
-| Mobile strategy | PWA | Native iOS / Android | Single codebase, 90% of native UX |
-| Auth | JWT + Refresh Tokens | Session-based auth | Stateless, works for PWA + API clients |
-| JWT library | jjwt 0.13.0 | Spring OAuth | Lightweight, straightforward |
-| Migrations | Flyway | Liquibase | Simpler SQL-first approach |
-| Agreement lifecycle | Explicit move-out by landlord | Auto-expiry by end date | End dates not always known in advance |
-| Agreement start date | Nullable | Required | Legacy tenants with unknown move-in dates |
-| Deposit amount | Nullable | Required | Existing tenants already inside |
-| Auth identifier | Phone number primary, email optional | Email only | Uganda market — phone more reliable |
-| Login field | Single username field (phone or email) | Separate fields | Flexible, cleaner UX |
-| SecurityContext principal | Lightweight AuthenticatedUser record | Full User entity | Zero DB calls per request |
-| Pagination | Custom PagedResponse wrapper | Spring's Page directly | Consistent response structure for frontend |
-| Payment methods | Cash/manual only | MTN / Airtel API | Removes 3rd-party complexity from MVP |
-| Frontend framework | React + Vite 8 | Angular / Vue | Component-based, fast builds |
-| CSS approach | Inline styles | Tailwind utility classes | Tailwind v4 resets browser defaults aggressively |
-| Search implementation | Backend JPQL search | Client-side filtering | Works across all pages not just current page |
-| JPQL search cast | CAST(:param AS string) | Direct :param | PostgreSQL cannot infer type of null params |
-| JPQL date filter | Separate repo methods per condition | Single nullable query | PostgreSQL cannot cast null bytea to date |
-| Deployment | GitLab CI + git pull + docker compose | Registry push/pull | Matches existing backend CI pattern |
-| Frontend container | Nginx serving React build | Node.js serving | Lighter, faster, production standard |
-| Tenant type | NEW / EXISTING flag on Agreement | Separate tenant tables | Same person can be new in one unit, existing in another |
-| Opening balance | On Agreement entity | On Tenant entity | Scoped to a specific tenancy, not the person |
-| Payment periods | period_month + period_year columns | Derived from payment_date | Explicit — payment date ≠ period covered |
-| Split payments | Multiple payments per period allowed | One payment per period | Landlords often collect in instalments |
-| Overpayment handling | Auto-create ROLLOVER for next period | Manual credit adjustment | Reduces landlord workload, mirrors real accounting |
-| Rollover dedup | Unique index on (agreement_id, month, year, source=ROLLOVER) | Application-level check | Database-enforced, prevents race conditions |
-| Balance visibility | Enriched TenantResponse | Separate /balances endpoint | One API call, simpler frontend, no data joining |
-| Period status | Computed in PaymentResponse.from() | Stored column | Always accurate, no sync issues |
-| Outstanding computation | TenantService enrichment on every GET | Scheduled batch job | Real-time accuracy, acceptable perf for MVP scale |
+| Decision                   | Choice                                                              | Rejected                           | Reason                                           |
+|----------------------------|---------------------------------------------------------------------|------------------------------------|--------------------------------------------------|
+| Multi-tenancy              | Shared schema + landlord_id                                         | Schema-per-landlord                | Simpler ops                                      |
+| Auth                       | JWT + Refresh Tokens                                                | Session-based                      | Stateless, PWA-friendly                          |
+| Token expiry UX            | Auto-logout + redirect                                              | Show empty screens / unlock button | Clean, standard, no confusion                    |
+| Agreement lifecycle        | Explicit move-out                                                   | Auto-expiry by end date            | End dates not always known                       |
+| start_date                 | Nullable                                                            | Required                           | Legacy tenants may not know move-in date         |
+| Billing cycle              | Derived from move-in day                                            | Calendar month only                | Matches real-world tenant expectations           |
+| Billing day cap            | Max 28                                                              | Max 31                             | Avoids February 29/30/31 issues                  |
+| Billing model              | Per agreement (ADVANCE/ARREARS)                                     | Per landlord                       | Different tenants have different arrangements    |
+| Payment period             | period_start_date + period_end_date                                 | period_month + period_year         | Exact dates needed for mid-month billing cycles  |
+| Overpayment                | Auto-create ROLLOVER                                                | Manual credit                      | Reduces landlord workload                        |
+| Rollover dedup             | Unique index on (agreement_id, period_start_date, source)           | App-level check                    | Database-enforced                                |
+| Balance computation        | Cumulative all-time                                                 | Current month only                 | Unpaid months must carry forward                 |
+| Opening balance            | On Agreement                                                        | On Tenant                          | Scoped to a specific tenancy                     |
+| EXISTING tenant onboarding | startDate = first future cycle, openingBalance = historical arrears | startDate = first unpaid cycle     | Simpler for landlord — enter arrears manually    |
+| Period status              | Computed in PaymentResponse.from()                                  | Stored column                      | Always accurate, no sync issues                  |
+| Outstanding computation    | TenantService enrichment on every GET                               | Scheduled batch                    | Real-time accuracy                               |
+| Mobile layout              | Cards + bottom sheet drill-down                                     | Horizontal scroll table            | Readable on small screens                        |
+| Mobile create action       | FAB (floating action button)                                        | Button in header                   | Standard mobile PWA pattern, clean header        |
+| Mobile sign-out            | Avatar dropdown in header                                           | Bottom nav item                    | Saves nav space, standard pattern                |
+| Desktop edit agreements    | Edit button in table row                                            | Separate edit page                 | Inline, no navigation required                   |
+| CSS approach               | Inline styles                                                       | Tailwind utility classes           | Tailwind v4 resets browser defaults aggressively |
 
 ---
 
-*Document updated to reflect payment period, overpayment rollover, tenant type, opening balance, and balance visibility features. Version 4.0 — All decisions are subject to revision as the project evolves.*
+*Document updated to v5.0 — reflects billing cycle (ADVANCE/ARREARS), cycle date periods, BillingCycleUtils, edit agreement, token expiry handling, mobile drill-down sheets, FAB pattern, and cumulative balance computation.*
