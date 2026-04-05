@@ -1,0 +1,3 @@
+ALTER TABLE payments
+    ALTER COLUMN period_month DROP NOT NULL,
+ALTER COLUMN period_year  DROP NOT NULL;
