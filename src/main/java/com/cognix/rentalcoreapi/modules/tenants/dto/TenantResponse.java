@@ -19,17 +19,14 @@ public record TenantResponse(
         BigDecimal currentBalance,
         String periodStatus,
         LocalDate currentCycleStart,
-        LocalDate currentCycleEnd
+        LocalDate currentCycleEnd,
+        Boolean currentCyclePaid
 ) {
     public static TenantResponse from(Tenant tenant) {
         return new TenantResponse(
-                tenant.getId(),
-                tenant.getName(),
-                tenant.getPhone(),
-                tenant.getEmail(),
-                tenant.getAddress(),
-                tenant.getCreatedAt(),
-                null, null, null, null, null, null
+                tenant.getId(), tenant.getName(), tenant.getPhone(),
+                tenant.getEmail(), tenant.getAddress(), tenant.getCreatedAt(),
+                null, null, null, null, null, null, null
         );
     }
 
@@ -39,13 +36,15 @@ public record TenantResponse(
             BigDecimal currentBalance,
             String periodStatus,
             LocalDate currentCycleStart,
-            LocalDate currentCycleEnd) {
+            LocalDate currentCycleEnd,
+            Boolean currentCyclePaid) {
 
         return new TenantResponse(
                 this.id, this.name, this.phone,
                 this.email, this.address, this.createdAt,
                 currentUnit, monthlyRent, currentBalance,
-                periodStatus, currentCycleStart, currentCycleEnd
+                periodStatus, currentCycleStart, currentCycleEnd,
+                currentCyclePaid
         );
     }
 }
