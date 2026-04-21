@@ -83,4 +83,14 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("to") LocalDate to,
             Pageable pageable
     );
+
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
+            "WHERE p.agreement.id = :agreementId " +
+            "AND p.periodStartDate = :periodStartDate " +
+            "AND p.periodEndDate = :periodEndDate")
+    BigDecimal sumByAgreementAndCycle(
+            @Param("agreementId") UUID agreementId,
+            @Param("periodStartDate") LocalDate periodStartDate,
+            @Param("periodEndDate") LocalDate periodEndDate
+    );
 }

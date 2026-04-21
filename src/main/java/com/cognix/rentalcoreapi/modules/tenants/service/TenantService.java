@@ -19,7 +19,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -143,6 +142,18 @@ public class TenantService {
         BigDecimal outstanding = totalEverOwed.subtract(totalEverPaid)
                 .max(BigDecimal.ZERO);
 
+        // Current cycle dates
+        LocalDate cycleStart = BillingCycleUtils.currentCycleStart(agreement);
+        LocalDate cycleEnd   = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());
+
+        // ── Current cycle paid ──────────────────────────────
+        // Sum payments whose period covers the current cycle specifically
+        BigDecimal currentCyclePaidAmount = paymentRepository.sumByAgreementAndCycle(
+                agreement.getId(), cycleStart, cycleEnd);
+
+        boolean currentCyclePaid = currentCyclePaidAmount
+                .compareTo(agreement.getRentAmount()) >= 0;
+
         // Period status
         String periodStatus;
         if (outstanding.compareTo(BigDecimal.ZERO) == 0) {
@@ -153,17 +164,14 @@ public class TenantService {
             periodStatus = "UNPAID";
         }
 
-        // Current cycle dates for display
-        LocalDate cycleStart = BillingCycleUtils.currentCycleStart(agreement);
-        LocalDate cycleEnd = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());
-
         return TenantResponse.from(tenant).withBalance(
                 agreement.getUnit().getRoomNumber(),
                 agreement.getRentAmount(),
                 outstanding,
                 periodStatus,
                 cycleStart,
-                cycleEnd
+                cycleEnd,
+                currentCyclePaid
         );
     }
 }
