@@ -32,6 +32,10 @@ app:
     secret: ${JWT_SECRET}
     expiry-ms: ${JWT_EXPIRY_MS:86400000}
     refresh-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}
+  cloudinary:
+    cloud-name: ${CLOUDINARY_CLOUD_NAME}
+    api-key: ${CLOUDINARY_API_KEY}
+    api-secret: ${CLOUDINARY_API_SECRET}
 
 logging:
   level:
