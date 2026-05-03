@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.modules.settings.model;
 
 import com.cognix.rentalcoreapi.modules.auth.model.User;
+import com.cognix.rentalcoreapi.shared.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
@@ -18,11 +19,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "landlord_settings")
 @EntityListeners(AuditingEntityListener.class)
-public class LandlordSettings {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+public class LandlordSettings extends BaseEntity {
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "landlord_id", nullable = false, unique = true)
@@ -56,12 +53,4 @@ public class LandlordSettings {
     @Column(nullable = false)
     @Builder.Default
     private String receiptStyle = "DIGITAL"; // DIGITAL or FORMAL
-
-    @CreatedDate
-    @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @LastModifiedDate
-    @Column(nullable = false)
-    private LocalDateTime updatedAt;
 }
