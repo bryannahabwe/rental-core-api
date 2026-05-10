@@ -17,6 +17,7 @@ public record TenantResponse(
         String currentUnit,
         BigDecimal monthlyRent,
         BigDecimal currentBalance,
+        BigDecimal openingArrears,
         String periodStatus,
         LocalDate currentCycleStart,
         LocalDate currentCycleEnd,
@@ -26,7 +27,7 @@ public record TenantResponse(
         return new TenantResponse(
                 tenant.getId(), tenant.getName(), tenant.getPhone(),
                 tenant.getEmail(), tenant.getAddress(), tenant.getCreatedAt(),
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -34,6 +35,7 @@ public record TenantResponse(
             String currentUnit,
             BigDecimal monthlyRent,
             BigDecimal currentBalance,
+            BigDecimal openingArrears,
             String periodStatus,
             LocalDate currentCycleStart,
             LocalDate currentCycleEnd,
@@ -42,7 +44,7 @@ public record TenantResponse(
         return new TenantResponse(
                 this.id, this.name, this.phone,
                 this.email, this.address, this.createdAt,
-                currentUnit, monthlyRent, currentBalance,
+                currentUnit, monthlyRent, currentBalance, openingArrears,
                 periodStatus, currentCycleStart, currentCycleEnd,
                 currentCyclePaid
         );

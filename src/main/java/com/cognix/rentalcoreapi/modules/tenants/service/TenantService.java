@@ -168,6 +168,7 @@ public class TenantService {
                 agreement.getUnit().getRoomNumber(),
                 agreement.getRentAmount(),
                 outstanding,
+                openingArrears,
                 periodStatus,
                 cycleStart,
                 cycleEnd,
