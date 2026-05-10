@@ -10,30 +10,46 @@ public class BillingCycleUtils {
 
     /**
      * Compute the current cycle start date for an agreement.
-     * e.g. billing day = 10, today = Apr 25 → Apr 10
-     * billing day = 10, today = Apr 8  → Mar 10
+     *
+     * ADVANCE: current in-progress cycle (e.g. today Apr 25, billingDay 10 → Apr 10)
+     * ARREARS: last completed cycle (e.g. today May 10, billingDay 15 → Mar 15)
+     *          because payment is collected at END of cycle — Mar 15–Apr 14 is due
      */
     public static LocalDate currentCycleStart(RentalAgreement agreement) {
+        if (agreement.getStartDate() == null) return null;
+
         LocalDate today = LocalDate.now();
         int billingDay = agreement.getBillingDay();
 
-        // Safe billing day for short months
-        int safeDay = Math.min(billingDay,
-                today.getMonth().length(today.isLeapYear()));
+        // Find the most recent billing day that has passed
+        LocalDate cycleStart = today.withDayOfMonth(
+                Math.min(billingDay, today.lengthOfMonth()));
 
-        LocalDate candidate = today.withDayOfMonth(safeDay);
-        if (candidate.isAfter(today)) {
-            candidate = candidate.minusMonths(1);
-            safeDay = Math.min(billingDay,
-                    candidate.getMonth().length(candidate.isLeapYear()));
-            candidate = candidate.withDayOfMonth(safeDay);
+        if (cycleStart.isAfter(today)) {
+            cycleStart = cycleStart.minusMonths(1)
+                    .withDayOfMonth(Math.min(billingDay,
+                            cycleStart.minusMonths(1).lengthOfMonth()));
         }
-        return candidate;
+
+        // ARREARS — go back one more cycle because the "current due" cycle
+        // is the one that just completed, not the one in progress
+        if (agreement.getBillingModel() == BillingModel.ARREARS) {
+            cycleStart = cycleStart.minusMonths(1)
+                    .withDayOfMonth(Math.min(billingDay,
+                            cycleStart.minusMonths(1).lengthOfMonth()));
+        }
+
+        // Never go before startDate
+        if (cycleStart.isBefore(agreement.getStartDate())) {
+            cycleStart = agreement.getStartDate();
+        }
+
+        return cycleStart;
     }
 
     /**
      * Compute cycle end date given a cycle start date.
-     * e.g. Apr 10 → May 9
+     * e.g. Apr 15 → May 14
      */
     public static LocalDate cycleEnd(LocalDate cycleStart, int billingDay) {
         LocalDate next = cycleStart.plusMonths(1);
@@ -44,12 +60,15 @@ public class BillingCycleUtils {
 
     /**
      * Count how many billing cycles have elapsed and are DUE.
-     * ADVANCE: current cycle is immediately due on start day
-     * ARREARS: only completed cycles are due
+     *
+     * ADVANCE: current in-progress cycle counts immediately (paid at start)
+     * ARREARS: only completed cycles count (paid at end)
+     *
+     * currentCycleStart() already handles the ADVANCE/ARREARS distinction,
+     * so elapsed is always: months between firstCycleStart and currentCycleStart + 1
      */
     public static long cyclesElapsed(RentalAgreement agreement) {
         if (agreement.getStartDate() == null) {
-            // EXISTING tenant with no start date — use createdAt
             return cyclesElapsedFromDate(
                     agreement.getCreatedAt().toLocalDate(),
                     agreement.getBillingDay(),
@@ -68,47 +87,33 @@ public class BillingCycleUtils {
 
         LocalDate today = LocalDate.now();
 
-        // If startDate is in the future, no cycles have started yet
-        if (fromDate.isAfter(today)) {
-            return 0;
-        }
+        if (fromDate.isAfter(today)) return 0;
 
         int safeDay = Math.min(billingDay,
                 fromDate.getMonth().length(fromDate.isLeapYear()));
         LocalDate firstCycleStart = fromDate.withDayOfMonth(safeDay);
 
+        // If billing day comes AFTER the day they moved in, first cycle
+        // starts on that day in the same month — otherwise next month
         if (fromDate.getDayOfMonth() > safeDay) {
             firstCycleStart = firstCycleStart.plusMonths(1);
         }
 
-        // If firstCycleStart is still in the future, no cycles yet
-        if (firstCycleStart.isAfter(today)) {
+        if (firstCycleStart.isAfter(today)) return 0;
+
+        // currentCycleStart already accounts for ADVANCE vs ARREARS
+        LocalDate currentCycle = currentCycleStart(
+                buildTemp(fromDate, billingDay, model));
+
+        if (currentCycle == null || currentCycle.isBefore(firstCycleStart)) {
             return 0;
         }
 
-        LocalDate currentCycleStart = currentCycleStart(
-                buildTemp(fromDate, billingDay, model));
-
-        if (model == BillingModel.ADVANCE) {
-            long months = ChronoUnit.MONTHS.between(
-                    firstCycleStart, currentCycleStart) + 1;
-            return Math.max(0, months);
-        } else {
-            // ARREARS — only completed cycles
-            LocalDate currentCycleEnd = cycleEnd(currentCycleStart, billingDay);
-            if (today.isBefore(currentCycleEnd) || today.isEqual(currentCycleEnd)) {
-                long months = ChronoUnit.MONTHS.between(
-                        firstCycleStart, currentCycleStart);
-                return Math.max(0, months);
-            } else {
-                long months = ChronoUnit.MONTHS.between(
-                        firstCycleStart, currentCycleStart) + 1;
-                return Math.max(0, months);
-            }
-        }
+        // Count = number of complete months between first and current + 1
+        long months = ChronoUnit.MONTHS.between(firstCycleStart, currentCycle) + 1;
+        return Math.max(0, months);
     }
 
-    // Helper to build a temp-like object for currentCycleStart
     private static RentalAgreement buildTemp(
             LocalDate fromDate, int billingDay, BillingModel model) {
         RentalAgreement temp = new RentalAgreement();
