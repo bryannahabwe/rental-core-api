@@ -1,5 +1,6 @@
 package com.cognix.rentalcoreapi.modules.agreements.controller;
 
+import com.cognix.rentalcoreapi.modules.agreements.dto.CycleStatusResponse;
 import com.cognix.rentalcoreapi.modules.agreements.dto.MoveOutRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementResponse;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -65,5 +67,11 @@ public class RentalAgreementController {
             @PathVariable UUID id,
             @RequestBody RentalAgreementRequest request) {
         return ResponseEntity.ok(agreementService.updateAgreement(id, request));
+    }
+
+    @GetMapping("/{id}/cycles")
+    public ResponseEntity<List<CycleStatusResponse>> getCycleStatuses(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(agreementService.getCycleStatuses(id));
     }
 }

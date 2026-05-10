@@ -1,5 +1,6 @@
 package com.cognix.rentalcoreapi.modules.agreements.service;
 
+import com.cognix.rentalcoreapi.modules.agreements.dto.CycleStatusResponse;
 import com.cognix.rentalcoreapi.modules.agreements.dto.MoveOutRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementRequest;
 import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementResponse;
@@ -9,17 +10,23 @@ import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import com.cognix.rentalcoreapi.modules.agreements.model.TenantType;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
+import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
+import org.apache.coyote.BadRequestException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -30,6 +37,7 @@ public class RentalAgreementService {
     private final UserRepository userRepository;
     private final TenantRepository tenantRepository;
     private final RentalUnitRepository unitRepository;
+    private final PaymentRepository paymentRepository;
 
     public PagedResponse<RentalAgreementResponse> getAllAgreements(
             Pageable pageable, String search, AgreementStatus status) {
@@ -169,5 +177,59 @@ public class RentalAgreementService {
         }
 
         return RentalAgreementResponse.from(agreementRepository.save(agreement));
+    }
+
+    public List<CycleStatusResponse> getCycleStatuses(UUID agreementId) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
+
+        RentalAgreement agreement = agreementRepository
+                .findByIdAndLandlordId(agreementId, landlordId)
+                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+
+        if (agreement.getStartDate() == null) {
+            return List.of();
+        }
+
+        List<CycleStatusResponse> cycles = new ArrayList<>();
+
+        // Generate all cycles from startDate to today
+        LocalDate cycleStart = agreement.getStartDate();
+        LocalDate today = LocalDate.now();
+
+        // For ARREARS — only show completed cycles + current
+        // For ADVANCE — show from startDate including current cycle
+        LocalDate lastCycleStart = BillingCycleUtils.currentCycleStart(agreement);
+
+        while (!cycleStart.isAfter(lastCycleStart)) {
+            LocalDate cycleEnd = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());;
+
+            BigDecimal paidAmount = paymentRepository.sumByAgreementAndCycle(
+                    agreementId, cycleStart, cycleEnd
+            );
+
+            BigDecimal expectedAmount = agreement.getRentAmount();
+
+            String status;
+            if (paidAmount.compareTo(expectedAmount) >= 0) {
+                status = "PAID";
+            } else if (paidAmount.compareTo(BigDecimal.ZERO) > 0) {
+                status = "PARTIAL";
+            } else {
+                status = "UNPAID";
+            }
+
+            cycles.add(new CycleStatusResponse(
+                    cycleStart,
+                    cycleEnd,
+                    expectedAmount,
+                    paidAmount,
+                    status
+            ));
+
+            // Advance to next cycle
+            cycleStart = cycleEnd.plusDays(1);
+        }
+
+        return cycles;
     }
 }
