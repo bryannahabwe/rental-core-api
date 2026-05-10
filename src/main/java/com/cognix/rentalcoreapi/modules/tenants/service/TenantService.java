@@ -131,7 +131,7 @@ public class TenantService {
                 .multiply(BigDecimal.valueOf(cyclesElapsed));
 
         // Apply opening balance
-        BigDecimal openingCredit = agreement.getOpeningBalance().max(BigDecimal.ZERO);
+        BigDecimal openingCredit  = agreement.getOpeningBalance().max(BigDecimal.ZERO);
         BigDecimal openingArrears = agreement.getOpeningBalance().min(BigDecimal.ZERO).abs();
         totalEverOwed = totalEverOwed.subtract(openingCredit).add(openingArrears);
 
@@ -142,12 +142,32 @@ public class TenantService {
         BigDecimal outstanding = totalEverOwed.subtract(totalEverPaid)
                 .max(BigDecimal.ZERO);
 
-        // Current cycle dates
+        // Current cycle dates — may be null for ARREARS tenant
+        // whose first cycle has not yet completed
         LocalDate cycleStart = BillingCycleUtils.currentCycleStart(agreement);
+
+        // ── Guard: no cycle due yet ──────────────────────────
+        if (cycleStart == null) {
+            // ARREARS tenant — first cycle not yet complete, nothing is due
+            String periodStatus = outstanding.compareTo(BigDecimal.ZERO) == 0
+                    ? "PAID" : "PARTIAL";
+
+            return TenantResponse.from(tenant).withBalance(
+                    agreement.getUnit().getRoomNumber(),
+                    agreement.getRentAmount(),
+                    outstanding,
+                    openingArrears,
+                    periodStatus,
+                    null,   // no current cycle start
+                    null,   // no current cycle end
+                    false   // current cycle not paid (nothing due yet)
+            );
+        }
+
+        // Current cycle end
         LocalDate cycleEnd = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());
 
-        // ── Current cycle paid ──────────────────────────────
-        // Sum payments whose period covers the current cycle specifically
+        // Sum payments for current cycle specifically
         BigDecimal currentCyclePaidAmount = paymentRepository.sumByAgreementAndCycle(
                 agreement.getId(), cycleStart, cycleEnd);
 
