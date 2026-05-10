@@ -21,7 +21,6 @@ public class BillingCycleUtils {
         LocalDate today = LocalDate.now();
         int billingDay = agreement.getBillingDay();
 
-        // Find the most recent billing day that has passed
         LocalDate cycleStart = today.withDayOfMonth(
                 Math.min(billingDay, today.lengthOfMonth()));
 
@@ -31,8 +30,6 @@ public class BillingCycleUtils {
                             cycleStart.minusMonths(1).lengthOfMonth()));
         }
 
-        // ARREARS — go back one more cycle because the "current due" cycle
-        // is the one that just completed, not the one in progress
         if (agreement.getBillingModel() == BillingModel.ARREARS) {
             cycleStart = cycleStart.minusMonths(1)
                     .withDayOfMonth(Math.min(billingDay,
@@ -42,6 +39,16 @@ public class BillingCycleUtils {
         // Never go before startDate
         if (cycleStart.isBefore(agreement.getStartDate())) {
             cycleStart = agreement.getStartDate();
+        }
+
+        // ARREARS — if the computed cycle hasn't ended yet, no cycle is due
+        if (agreement.getBillingModel() == BillingModel.ARREARS) {
+            LocalDate computedCycleEnd = cycleEnd(cycleStart, billingDay);
+            if (today.isBefore(computedCycleEnd)
+                    && cycleStart.isEqual(agreement.getStartDate())) {
+                // First cycle not yet complete — nothing due
+                return null;
+            }
         }
 
         return cycleStart;
@@ -93,15 +100,12 @@ public class BillingCycleUtils {
                 fromDate.getMonth().length(fromDate.isLeapYear()));
         LocalDate firstCycleStart = fromDate.withDayOfMonth(safeDay);
 
-        // If billing day comes AFTER the day they moved in, first cycle
-        // starts on that day in the same month — otherwise next month
         if (fromDate.getDayOfMonth() > safeDay) {
             firstCycleStart = firstCycleStart.plusMonths(1);
         }
 
         if (firstCycleStart.isAfter(today)) return 0;
 
-        // currentCycleStart already accounts for ADVANCE vs ARREARS
         LocalDate currentCycle = currentCycleStart(
                 buildTemp(fromDate, billingDay, model));
 
@@ -109,7 +113,27 @@ public class BillingCycleUtils {
             return 0;
         }
 
-        // Count = number of complete months between first and current + 1
+        if (model == BillingModel.ARREARS) {
+            // For ARREARS — only count cycles that have fully completed
+            // i.e. cycleEnd < today
+            LocalDate currentCycleEnd = cycleEnd(currentCycle, billingDay);
+
+            // If the current cycle hasn't ended yet, don't count it
+            if (today.isBefore(currentCycleEnd)) {
+                // Go back one more cycle
+                LocalDate previousCycle = currentCycle.minusMonths(1)
+                        .withDayOfMonth(Math.min(billingDay,
+                                currentCycle.minusMonths(1).lengthOfMonth()));
+
+                if (previousCycle.isBefore(firstCycleStart)) {
+                    return 0; // No completed cycles yet
+                }
+
+                long months = ChronoUnit.MONTHS.between(firstCycleStart, previousCycle) + 1;
+                return Math.max(0, months);
+            }
+        }
+
         long months = ChronoUnit.MONTHS.between(firstCycleStart, currentCycle) + 1;
         return Math.max(0, months);
     }
