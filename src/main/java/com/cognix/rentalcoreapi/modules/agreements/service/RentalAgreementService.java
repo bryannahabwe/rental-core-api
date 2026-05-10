@@ -192,20 +192,30 @@ public class RentalAgreementService {
 
         List<CycleStatusResponse> cycles = new ArrayList<>();
 
-        // Generate all cycles from startDate to today
         LocalDate cycleStart = agreement.getStartDate();
         LocalDate today = LocalDate.now();
 
-        // For ARREARS — only show completed cycles + current
-        // For ADVANCE — show from startDate including current cycle
+        // Current due cycle
         LocalDate lastCycleStart = BillingCycleUtils.currentCycleStart(agreement);
 
-        while (!cycleStart.isAfter(lastCycleStart)) {
-            LocalDate cycleEnd = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());;
+        // If no cycle is due yet (ARREARS tenant, first cycle not complete)
+        // still show the current in-progress cycle so landlord can record early payment
+        if (lastCycleStart == null) {
+            lastCycleStart = cycleStart;
+        }
+
+        // Always include ONE future cycle beyond the current due cycle
+        // so tenants who pay early can pay ahead
+        LocalDate futureCycleStart = BillingCycleUtils.nextCycleStart(
+                lastCycleStart, agreement.getBillingDay());
+
+        // Generate all cycles from startDate up to and including future cycle
+        while (!cycleStart.isAfter(futureCycleStart)) {
+            LocalDate cycleEnd = BillingCycleUtils.cycleEnd(
+                    cycleStart, agreement.getBillingDay());
 
             BigDecimal paidAmount = paymentRepository.sumByAgreementAndCycle(
-                    agreementId, cycleStart, cycleEnd
-            );
+                    agreementId, cycleStart, cycleEnd);
 
             BigDecimal expectedAmount = agreement.getRentAmount();
 
@@ -227,7 +237,8 @@ public class RentalAgreementService {
             ));
 
             // Advance to next cycle
-            cycleStart = cycleEnd.plusDays(1);
+            cycleStart = BillingCycleUtils.nextCycleStart(
+                    cycleStart, agreement.getBillingDay());
         }
 
         return cycles;
