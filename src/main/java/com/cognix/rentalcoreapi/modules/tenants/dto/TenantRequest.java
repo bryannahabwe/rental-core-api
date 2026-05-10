@@ -17,4 +17,5 @@ public record TenantRequest(
         String email,
 
         String address
-) {}
+) {
+}

@@ -11,7 +11,7 @@ public class BillingCycleUtils {
     /**
      * Compute the current cycle start date for an agreement.
      * e.g. billing day = 10, today = Apr 25 → Apr 10
-     *      billing day = 10, today = Apr 8  → Mar 10
+     * billing day = 10, today = Apr 8  → Mar 10
      */
     public static LocalDate currentCycleStart(RentalAgreement agreement) {
         LocalDate today = LocalDate.now();

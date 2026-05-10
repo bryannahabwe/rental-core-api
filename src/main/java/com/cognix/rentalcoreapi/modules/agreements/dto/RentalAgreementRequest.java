@@ -17,4 +17,5 @@ public record RentalAgreementRequest(
         TenantType tenantType,
         BigDecimal openingBalance,
         BillingModel billingModel  // ADVANCE or ARREARS, defaults to ADVANCE
-) {}
+) {
+}

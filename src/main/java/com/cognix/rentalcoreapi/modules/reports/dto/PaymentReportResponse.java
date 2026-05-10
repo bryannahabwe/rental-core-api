@@ -8,4 +8,5 @@ public record PaymentReportResponse(
         LocalDate to,
         long totalPayments,
         BigDecimal totalAmount
-) {}
+) {
+}

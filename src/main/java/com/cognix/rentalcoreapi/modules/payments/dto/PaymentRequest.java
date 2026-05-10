@@ -16,4 +16,5 @@ public record PaymentRequest(
         @NotNull LocalDate periodEndDate,
         String reference,
         String notes
-) {}
+) {
+}

@@ -1,218 +1,222 @@
-# RENTAL MANAGEMENT SAAS
+# RENTAL MANAGEMENT SAAS — RentFlow
+
 ## Technical Specification Document
-**Version 5.0 — MVP Edition | April 2026 | CONFIDENTIAL**
+
+**Version 6.0 — Post-MVP | May 2026 | CONFIDENTIAL**
 
 ---
 
 ## Table of Contents
+
 1. Introduction
 2. System Architecture
 3. Data Model
 4. API Design
 5. Frontend Architecture
-6. Security
+6. Security & Auth
 7. Infrastructure & Deployment
-8. Development Plan
+8. Development Status
 9. Engineering Conventions
 10. Architecture Decisions Log
+11. Pending Features
 
 ---
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This document describes the technical architecture, data model, API design, frontend implementation, and deployment approach for the Rental Management SaaS platform. It serves as the single source of truth for all engineering decisions made during the design and implementation phases.
+
+Single source of truth for all engineering decisions in the RentFlow platform. Use this document to onboard into a new
+chat session or resume development from any point.
 
 ### 1.2 Project Overview
-The Rental Management SaaS is a multi-tenant web application that allows landlords to manage their rental properties, tenants, agreements, and payments from a single platform. Each landlord operates in their own isolated data context. The system is designed as a Progressive Web App (PWA) accessible via mobile and desktop browsers.
 
-### 1.3 Scope — MVP
-The MVP covers the following functional areas:
+RentFlow is a multi-tenant SaaS PWA for Ugandan landlords to manage rental properties, tenants, agreements, and
+payments. Each landlord operates in an isolated data context. Built as a Progressive Web App accessible via mobile and
+desktop browsers.
 
-- Landlord authentication (register, login, token refresh, auto-logout on expiry)
-- Tenant management (CRUD + backend search + cumulative balance visibility)
-- Rental unit management (CRUD + search + availability filter)
-- Rental agreement management (NEW/EXISTING tenant type, opening balance, billing model, billing day, move-out, edit)
-- Payment recording (cycle-based periods, overpayment rollover, split payments, date filter)
-- Reporting and analytics dashboard (collection progress, outstanding tenants)
-- Progressive Web App (PWA) — installable on mobile
-- Responsive layout — sidebar on desktop, bottom nav + FAB on mobile
+### 1.3 Live Environment
 
-### 1.4 Out of Scope (MVP)
-
-- Mobile money integrations (MTN, Airtel) — post-MVP
-- Native mobile applications (iOS / Android)
-- Email / SMS notifications
-- Multi-user roles per landlord account
+- **API:** https://rental-api.askmoozo.com/api/v1
+- **Stack:** Spring Boot 4 / Java 25 / PostgreSQL (backend) + React / Vite 8 / Tailwind v4 (frontend)
+- **Deployment:** Contabo VPS, Docker + Docker Compose, GitLab CI, Nginx reverse proxy
 
 ---
 
 ## 2. System Architecture
 
-### 2.1 Architecture Overview
-The system follows a standard three-tier architecture: a React PWA frontend, a Spring Boot REST API backend, and a PostgreSQL relational database. All components are containerized with Docker and deployed on a single Contabo VPS, fronted by an Nginx reverse proxy container.
+### 2.1 Multi-Tenancy
 
-### 2.2 Multi-Tenancy Strategy
-The platform uses a shared database, shared schema approach. Every table includes a `landlord_id` foreign key that scopes all data to the authenticated landlord. Data leak risk is mitigated by strict service-layer convention — all repository queries filter by `landlord_id` extracted from JWT via `JwtUtils.getCurrentLandlordId()`.
+Shared database, shared schema. Every table has `landlord_id` FK. All service methods call
+`JwtUtils.getCurrentLandlordId()` — never from request body.
 
-### 2.3 Technology Stack
+### 2.2 Technology Stack
 
 #### Backend
 
-| Layer             | Technology                          |
-|-------------------|-------------------------------------|
-| Backend Framework | Spring Boot 4.0.x                   |
-| Language          | Java 25                             |
-| Build Tool        | Gradle                              |
-| ORM               | Spring Data JPA + Hibernate         |
-| Database          | PostgreSQL 16                       |
-| Migrations        | Flyway                              |
-| Auth              | Spring Security + JWT (jjwt 0.13.0) |
-| Validation        | Jakarta Bean Validation             |
-| API Docs          | Springdoc OpenAPI (Swagger UI)      |
+| Layer        | Technology                          |
+|--------------|-------------------------------------|
+| Framework    | Spring Boot 4.0.x                   |
+| Language     | Java 25                             |
+| Build        | Gradle                              |
+| ORM          | Spring Data JPA + Hibernate         |
+| Database     | PostgreSQL 16                       |
+| Migrations   | Flyway                              |
+| Auth         | Spring Security + JWT (jjwt 0.13.0) |
+| File Storage | Cloudinary (logo uploads)           |
+| Validation   | Jakarta Bean Validation             |
 
 #### Frontend
 
-| Layer            | Technology                                  |
-|------------------|---------------------------------------------|
-| Framework        | React + Vite 8                              |
-| Styling          | Tailwind CSS v4 + inline styles             |
-| Server State     | React Query v5                              |
-| Forms            | React Hook Form                             |
-| Charts           | Recharts                                    |
-| State Management | Zustand v5 (persisted)                      |
-| HTTP Client      | Axios (interceptors for JWT + auto-refresh) |
-| Routing          | React Router v7 + ProtectedRoute            |
-| PWA              | Vite PWA Plugin                             |
-| Icons            | Lucide React                                |
-| Fonts            | DM Sans + DM Serif Display                  |
+| Layer        | Technology                  |
+|--------------|-----------------------------|
+| Framework    | React + Vite 8              |
+| Styling      | Tailwind v4 + inline styles |
+| Server State | React Query v5              |
+| Forms        | React Hook Form             |
+| State        | Zustand v5 (persisted)      |
+| HTTP         | Axios + interceptors        |
+| Routing      | React Router v7             |
+| PWA          | Vite PWA Plugin             |
+| Icons        | Lucide React                |
+| PDF          | jsPDF                       |
+| Fonts        | DM Sans + DM Serif Display  |
 
 #### Infrastructure
 
-| Layer            | Technology               |
-|------------------|--------------------------|
-| Reverse Proxy    | Nginx (Docker container) |
-| Containerization | Docker + Docker Compose  |
-| SSL              | Certbot / Let's Encrypt  |
-| CI/CD            | GitLab CI                |
-| Hosting          | Contabo VPS              |
+| Layer         | Technology              |
+|---------------|-------------------------|
+| Reverse Proxy | Nginx (Docker)          |
+| Containers    | Docker + Docker Compose |
+| SSL           | Certbot / Let's Encrypt |
+| CI/CD         | GitLab CI               |
+| Hosting       | Contabo VPS             |
+| File Storage  | Cloudinary              |
 
 ---
 
 ## 3. Data Model
 
-### 3.1 Entity Relationship Overview
-Five core entities. Every entity (except Users) carries a `landlord_id`. All extend `BaseEntity` (UUID id, createdAt).
+### 3.1 Users (Landlords)
 
-### 3.2 Users (Landlords)
+| Column        | Type         | Constraints     |
+|---------------|--------------|-----------------|
+| id            | UUID         | PK              |
+| name          | VARCHAR(255) | NOT NULL        |
+| phone_number  | VARCHAR(20)  | UNIQUE NOT NULL |
+| email         | VARCHAR(255) | UNIQUE NULLABLE |
+| password_hash | VARCHAR(255) | NOT NULL        |
+| created_at    | TIMESTAMP    | NOT NULL        |
 
-| Column        | Type         | Constraints      |
-|---------------|--------------|------------------|
-| id            | UUID         | PK               |
-| name          | VARCHAR(255) | NOT NULL         |
-| phone_number  | VARCHAR(20)  | UNIQUE, NOT NULL |
-| email         | VARCHAR(255) | UNIQUE, NULLABLE |
-| password_hash | VARCHAR(255) | NOT NULL         |
-| created_at    | TIMESTAMP    | NOT NULL         |
+### 3.2 Rental Units
 
-### 3.3 Rental Units
+| Column       | Type          | Constraints  |
+|--------------|---------------|--------------|
+| id           | UUID          | PK           |
+| landlord_id  | UUID          | FK → users   |
+| room_number  | VARCHAR(50)   | NOT NULL     |
+| description  | TEXT          | NULLABLE     |
+| rent_amount  | DECIMAL(12,2) | NOT NULL     |
+| is_available | BOOLEAN       | DEFAULT TRUE |
+| created_at   | TIMESTAMP     | NOT NULL     |
 
-| Column       | Type          | Constraints   |
-|--------------|---------------|---------------|
-| id           | UUID          | PK            |
-| landlord_id  | UUID          | FK → users.id |
-| room_number  | VARCHAR(50)   | NOT NULL      |
-| description  | TEXT          | NULLABLE      |
-| rent_amount  | DECIMAL(12,2) | NOT NULL      |
-| is_available | BOOLEAN       | DEFAULT TRUE  |
-| created_at   | TIMESTAMP     | NOT NULL      |
+### 3.3 Tenants
 
-### 3.4 Tenants
+| Column      | Type         | Constraints |
+|-------------|--------------|-------------|
+| id          | UUID         | PK          |
+| landlord_id | UUID         | FK → users  |
+| name        | VARCHAR(255) | NOT NULL    |
+| phone       | VARCHAR(50)  | NOT NULL    |
+| email       | VARCHAR(255) | NULLABLE    |
+| address     | TEXT         | NULLABLE    |
+| created_at  | TIMESTAMP    | NOT NULL    |
 
-| Column      | Type         | Constraints   |
-|-------------|--------------|---------------|
-| id          | UUID         | PK            |
-| landlord_id | UUID         | FK → users.id |
-| name        | VARCHAR(255) | NOT NULL      |
-| phone       | VARCHAR(50)  | NOT NULL      |
-| email       | VARCHAR(255) | NULLABLE      |
-| address     | TEXT         | NULLABLE      |
-| created_at  | TIMESTAMP    | NOT NULL      |
+### 3.4 Rental Agreements
 
-> Room number is NOT stored on Tenant. The current unit is always derived from the active agreement.
+| Column          | Type          | Notes                                                    |
+|-----------------|---------------|----------------------------------------------------------|
+| id              | UUID          | PK                                                       |
+| landlord_id     | UUID          | FK → users                                               |
+| tenant_id       | UUID          | FK → tenants                                             |
+| unit_id         | UUID          | FK → rental_units                                        |
+| start_date      | DATE          | NULLABLE — move-in / first billing cycle start           |
+| move_out_date   | DATE          | NULLABLE — set on termination                            |
+| rent_amount     | DECIMAL(12,2) | NOT NULL                                                 |
+| deposit_amount  | DECIMAL(12,2) | NULLABLE                                                 |
+| status          | VARCHAR(20)   | ACTIVE / TERMINATED                                      |
+| tenant_type     | VARCHAR(20)   | NEW / EXISTING                                           |
+| opening_balance | DECIMAL(12,2) | Default 0. Positive=credit, Negative=arrears             |
+| billing_day     | INT           | 1–28. Derived from start_date day of month, capped at 28 |
+| billing_model   | VARCHAR(20)   | ADVANCE / ARREARS                                        |
+| created_at      | TIMESTAMP     | NOT NULL                                                 |
 
-### 3.5 Rental Agreements
+> **billing_day** is derived from `start_date.getDayOfMonth()`, capped at 28. Never stored as user input.
+> **ADVANCE** — pays at START of cycle. **ARREARS** — pays at END of cycle.
+> **opening_balance** — only meaningful for EXISTING tenants. Positive = paid ahead, Negative = owes arrears.
 
-| Column          | Type          | Constraints                | Description                           |
-|-----------------|---------------|----------------------------|---------------------------------------|
-| id              | UUID          | PK                         |                                       |
-| landlord_id     | UUID          | FK → users.id              |                                       |
-| tenant_id       | UUID          | FK → tenants.id            |                                       |
-| unit_id         | UUID          | FK → rental_units.id       |                                       |
-| start_date      | DATE          | NULLABLE                   | Move-in / first billing cycle start   |
-| move_out_date   | DATE          | NULLABLE                   | Set on termination                    |
-| rent_amount     | DECIMAL(12,2) | NOT NULL                   | Agreed monthly rent                   |
-| deposit_amount  | DECIMAL(12,2) | NULLABLE                   |                                       |
-| status          | VARCHAR(20)   | NOT NULL                   | ACTIVE / TERMINATED                   |
-| tenant_type     | VARCHAR(20)   | NOT NULL DEFAULT 'NEW'     | NEW / EXISTING                        |
-| opening_balance | DECIMAL(12,2) | NOT NULL DEFAULT 0         | Positive = credit, Negative = arrears |
-| billing_day     | INT           | NOT NULL DEFAULT 1         | Day of month rent is due (1–28)       |
-| billing_model   | VARCHAR(20)   | NOT NULL DEFAULT 'ADVANCE' | ADVANCE / ARREARS                     |
-| created_at      | TIMESTAMP     | NOT NULL                   |                                       |
+### 3.5 Payments
 
-> **billing_day** is derived automatically from `start_date` (day of month, capped at 28 to avoid February issues). For EXISTING tenants without a start_date, defaults to 1.
->
-> **billing_model:**
-> - `ADVANCE` — tenant pays at the START of each cycle. First payment is due on the move-in day.
-> - `ARREARS` — tenant pays at the END of each cycle. First payment is due one full cycle after move-in.
->
-> **opening_balance:**
-> - Positive = tenant has paid ahead (credit reduces outstanding)
-> - Negative = tenant owes historical arrears (increases outstanding)
-> - Only meaningful for EXISTING tenants. NEW tenants always start at 0.
-> - For EXISTING tenants: set `start_date` to the first cycle you want to track going forward, and set `openingBalance` to the total unpaid amount before that date.
+| Column            | Type          | Notes                              |
+|-------------------|---------------|------------------------------------|
+| id                | UUID          | PK                                 |
+| landlord_id       | UUID          | FK → users                         |
+| tenant_id         | UUID          | FK → tenants                       |
+| unit_id           | UUID          | FK → rental_units                  |
+| agreement_id      | UUID          | FK → rental_agreements             |
+| payment_date      | DATE          | NOT NULL — date received           |
+| amount            | DECIMAL(12,2) | NOT NULL                           |
+| method            | VARCHAR(50)   | CASH (MVP)                         |
+| period_start_date | DATE          | NOT NULL — start of cycle covered  |
+| period_end_date   | DATE          | NOT NULL — end of cycle covered    |
+| expected_amount   | DECIMAL(12,2) | NOT NULL — rent due for this cycle |
+| overpayment       | DECIMAL(12,2) | Default 0 — excess above expected  |
+| source            | VARCHAR(20)   | CASH / ROLLOVER                    |
+| reference         | VARCHAR(255)  | NULLABLE                           |
+| notes             | TEXT          | NULLABLE                           |
+| created_at        | TIMESTAMP     | NOT NULL                           |
 
-### 3.6 Payments
+> **period_month / period_year** — legacy columns, now nullable (V12 migration). Replaced by period_start_date /
+> period_end_date.
+> **Overpayment rollover** — when amount > expectedAmount, excess auto-creates ROLLOVER payment for next cycle. Chains
+> recursively.
 
-| Column            | Type          | Constraints               | Description                        |
-|-------------------|---------------|---------------------------|------------------------------------|
-| id                | UUID          | PK                        |                                    |
-| landlord_id       | UUID          | FK → users.id             |                                    |
-| tenant_id         | UUID          | FK → tenants.id           |                                    |
-| unit_id           | UUID          | FK → rental_units.id      |                                    |
-| agreement_id      | UUID          | FK → rental_agreements.id |                                    |
-| payment_date      | DATE          | NOT NULL                  | Date payment was received          |
-| amount            | DECIMAL(12,2) | NOT NULL                  | Amount paid                        |
-| method            | VARCHAR(50)   | NOT NULL DEFAULT 'CASH'   | CASH only (MVP)                    |
-| period_start_date | DATE          | NOT NULL                  | Start of cycle this payment covers |
-| period_end_date   | DATE          | NOT NULL                  | End of cycle this payment covers   |
-| expected_amount   | DECIMAL(12,2) | NOT NULL                  | Rent due for this period           |
-| overpayment       | DECIMAL(12,2) | NOT NULL DEFAULT 0        | Excess above expected              |
-| source            | VARCHAR(20)   | NOT NULL DEFAULT 'CASH'   | CASH / ROLLOVER                    |
-| reference         | VARCHAR(255)  | NULLABLE                  |                                    |
-| notes             | TEXT          | NULLABLE                  |                                    |
-| created_at        | TIMESTAMP     | NOT NULL                  |                                    |
+### 3.6 Landlord Settings
 
-> **period_start_date / period_end_date** replace the old `period_month` / `period_year` columns. Periods are now expressed as exact date ranges matching the billing cycle (e.g. Apr 15 – May 14 for a tenant with billing_day = 15).
->
-> **Overpayment rollover:** when `amount > expectedAmount`, `overpayment = amount - expectedAmount`. A ROLLOVER payment is auto-created for the next cycle. Chains recursively across multiple months.
->
-> **Split payments:** Multiple CASH payments per cycle are allowed. System sums them to determine period status.
+| Column            | Type         | Default                       | Notes                                       |
+|-------------------|--------------|-------------------------------|---------------------------------------------|
+| id                | UUID         | PK                            |                                             |
+| landlord_id       | UUID         | UNIQUE FK                     | One row per landlord                        |
+| company_name      | VARCHAR(255) | NULL                          | Shown in sidebar/header instead of RentFlow |
+| address           | TEXT         | NULL                          | Shown on receipts                           |
+| logo_url          | TEXT         | NULL                          | Cloudinary URL                              |
+| receipt_prefix    | VARCHAR(10)  | 'RCP'                         | e.g. RCP-001                                |
+| next_receipt_no   | INT          | 1                             | Auto-incremented on each receipt download   |
+| receipt_numbering | VARCHAR(20)  | 'AUTO'                        | AUTO / MANUAL                               |
+| receipt_footer    | TEXT         | 'Thank you for your business' | Bottom of receipt                           |
+| receipt_style     | VARCHAR(20)  | 'DIGITAL'                     | DIGITAL / FORMAL                            |
+| created_at        | TIMESTAMP    | NOW()                         |                                             |
+| updated_at        | TIMESTAMP    | NOW()                         |                                             |
+
+> Auto-created with defaults on first GET /settings. Logo uploaded to Cloudinary via
+`fileStorageService.upload(file, "landlord/logo", landlordId)`.
 
 ### 3.7 Flyway Migrations
 
-| File                                        | Description                                                                     |
-|---------------------------------------------|---------------------------------------------------------------------------------|
-| V1__create_users.sql                        | Users table                                                                     |
-| V2__create_rental_units.sql                 | Rental units                                                                    |
-| V3__create_tenants.sql                      | Tenants                                                                         |
-| V4__create_rental_agreements.sql            | Rental agreements                                                               |
-| V5__create_payments.sql                     | Payments                                                                        |
-| V7__make_agreement_fields_nullable.sql      | start_date and deposit_amount nullable                                          |
-| V8__add_tenant_type_and_opening_balance.sql | tenant_type, opening_balance on agreements                                      |
-| V9__add_payment_period_fields.sql           | period_month, period_year, expected_amount, overpayment, source on payments     |
-| V10__add_billing_model_and_day.sql          | billing_day, billing_model on agreements                                        |
-| V11__add_payment_period_dates.sql           | period_start_date, period_end_date on payments; backfill from period_month/year |
+| File                                        | Description                                                     |
+|---------------------------------------------|-----------------------------------------------------------------|
+| V1__create_users.sql                        | Users table                                                     |
+| V2__create_rental_units.sql                 | Rental units                                                    |
+| V3__create_tenants.sql                      | Tenants                                                         |
+| V4__create_rental_agreements.sql            | Rental agreements                                               |
+| V5__create_payments.sql                     | Payments                                                        |
+| V7__make_agreement_fields_nullable.sql      | start_date, deposit_amount nullable                             |
+| V8__add_tenant_type_and_opening_balance.sql | tenant_type, opening_balance                                    |
+| V9__add_payment_period_fields.sql           | period_month, period_year, expected_amount, overpayment, source |
+| V10__add_billing_model_and_day.sql          | billing_day, billing_model on agreements                        |
+| V11__add_payment_period_dates.sql           | period_start_date, period_end_date; backfill from month/year    |
+| V12__drop_old_period_columns.sql            | Make period_month, period_year nullable                         |
+| V13__create_landlord_settings.sql           | landlord_settings table                                         |
 
 ---
 
@@ -221,85 +225,89 @@ Five core entities. Every entity (except Users) carries a `landlord_id`. All ext
 ### 4.1 Base URL
 
 ```
-https://<domain>/api/v1/...
+https://rental-api.askmoozo.com/api/v1
 ```
 
 ### 4.2 Authentication
-All endpoints except `/auth/register`, `/auth/login`, `/auth/refresh` require:
+
+All endpoints except `/auth/**` require:
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-| Token         | Expiry   | Purpose                 |
-|---------------|----------|-------------------------|
-| Access Token  | 24 hours | API authentication      |
-| Refresh Token | 30 days  | Obtain new access token |
+| Token         | Expiry   | Purpose        |
+|---------------|----------|----------------|
+| Access Token  | 24 hours | API calls      |
+| Refresh Token | 30 days  | Silent renewal |
 
-### 4.3 Pagination
-
-| Param   | Default   | Description            |
-|---------|-----------|------------------------|
-| page    | 0         | Zero-based page number |
-| size    | 10        | Items per page         |
-| sortBy  | createdAt | Sort field             |
-| sortDir | desc      | asc or desc            |
-
-### 4.4 Endpoint Reference
+### 4.3 Endpoints
 
 #### Auth
 
-| Method | Endpoint       | Description          | Auth |
-|--------|----------------|----------------------|------|
-| POST   | /auth/register | Register landlord    | No   |
-| POST   | /auth/login    | Login                | No   |
-| POST   | /auth/refresh  | Refresh access token | No   |
+| Method | Endpoint       | Auth | Description                                                         |
+|--------|----------------|------|---------------------------------------------------------------------|
+| POST   | /auth/register | No   | Register landlord                                                   |
+| POST   | /auth/login    | No   | Login — returns accessToken, refreshToken, name, phoneNumber, email |
+| POST   | /auth/refresh  | No   | Exchange refresh token for new access token                         |
 
 #### Tenants
 
-| Method | Endpoint      | Description                                       |
-|--------|---------------|---------------------------------------------------|
-| GET    | /tenants      | List with cumulative balance (paginated + search) |
-| POST   | /tenants      | Create                                            |
-| GET    | /tenants/{id} | Get with cumulative balance                       |
-| PUT    | /tenants/{id} | Update                                            |
-| DELETE | /tenants/{id} | Delete                                            |
+| Method | Endpoint      | Description                                                                                                                          |
+|--------|---------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| GET    | /tenants      | Paginated + search. Each tenant enriched with cumulative balance, periodStatus, currentCycleStart, currentCycleEnd, currentCyclePaid |
+| POST   | /tenants      | Create                                                                                                                               |
+| GET    | /tenants/{id} | Get with balance                                                                                                                     |
+| PUT    | /tenants/{id} | Update                                                                                                                               |
+| DELETE | /tenants/{id} | Delete                                                                                                                               |
+
+**TenantResponse fields:**
+`id, name, phone, email, address, createdAt, currentUnit, monthlyRent, currentBalance, periodStatus (PAID/PARTIAL/UNPAID), currentCycleStart (LocalDate), currentCycleEnd (LocalDate), currentCyclePaid (Boolean)`
 
 #### Units
 
-| Method | Endpoint    | Description                                    |
-|--------|-------------|------------------------------------------------|
-| GET    | /units      | List (paginated + search + isAvailable filter) |
-| POST   | /units      | Create                                         |
-| GET    | /units/{id} | Get                                            |
-| PUT    | /units/{id} | Update                                         |
-| DELETE | /units/{id} | Delete                                         |
+| Method | Endpoint    | Description                             |
+|--------|-------------|-----------------------------------------|
+| GET    | /units      | Paginated + search + isAvailable filter |
+| POST   | /units      | Create                                  |
+| GET    | /units/{id} | Get                                     |
+| PUT    | /units/{id} | Update                                  |
+| DELETE | /units/{id} | Delete                                  |
 
 #### Agreements
 
 | Method | Endpoint                 | Description                                                                 |
 |--------|--------------------------|-----------------------------------------------------------------------------|
-| GET    | /agreements              | List (paginated + search + status filter)                                   |
-| POST   | /agreements              | Create (with billingModel, billingDay derived from startDate)               |
+| GET    | /agreements              | Paginated + search + status filter                                          |
+| POST   | /agreements              | Create (billingDay derived from startDate)                                  |
 | GET    | /agreements/{id}         | Get                                                                         |
 | PUT    | /agreements/{id}         | Update (billingModel, startDate, rentAmount, depositAmount, openingBalance) |
-| PATCH  | /agreements/{id}/moveout | Record move-out and terminate                                               |
+| PATCH  | /agreements/{id}/moveout | Terminate + mark unit available                                             |
 
 #### Payments
 
-| Method | Endpoint       | Description                                                    |
-|--------|----------------|----------------------------------------------------------------|
-| GET    | /payments      | List (paginated + search + date filter)                        |
-| POST   | /payments      | Record (periodStartDate + periodEndDate instead of month/year) |
-| GET    | /payments/{id} | Get                                                            |
+| Method | Endpoint       | Description                                       |
+|--------|----------------|---------------------------------------------------|
+| GET    | /payments      | Paginated + search + date range filter            |
+| POST   | /payments      | Record (periodStartDate + periodEndDate required) |
+| GET    | /payments/{id} | Get                                               |
 
 #### Reports
 
-| Method | Endpoint           | Description                 |
-|--------|--------------------|-----------------------------|
-| GET    | /reports/summary   | Dashboard stats             |
-| GET    | /reports/payments  | Payment report (date range) |
-| GET    | /reports/occupancy | Occupancy rate              |
+| Method | Endpoint           | Description                                                                    |
+|--------|--------------------|--------------------------------------------------------------------------------|
+| GET    | /reports/summary   | totalUnits, totalTenants, activeAgreements, totalRevenueAllTime, occupancyRate |
+| GET    | /reports/payments  | Date range payment totals                                                      |
+| GET    | /reports/occupancy | occupiedUnits, availableUnits, occupancyRate                                   |
+
+#### Settings
+
+| Method | Endpoint                 | Description                                                 |
+|--------|--------------------------|-------------------------------------------------------------|
+| GET    | /settings                | Get landlord settings (auto-creates defaults on first call) |
+| PUT    | /settings                | Update text fields                                          |
+| POST   | /settings/logo           | Upload logo (multipart/form-data, file param) → Cloudinary  |
+| POST   | /settings/receipt-number | Increment and return next receipt number (e.g. RCP-001)     |
 
 ---
 
@@ -307,10 +315,9 @@ Authorization: Bearer <access_token>
 
 ### 5.1 Design System
 
-- **Primary:** Deep Teal (`#0F6E56` / `#0a4a38`)
-- **Font:** DM Sans (UI) + DM Serif Display (logo)
-- **Layout:** Fixed sidebar (desktop 768px+) + bottom nav + FAB (mobile)
-- **Responsive:** CSS classes `desktop-table`, `desktop-topbar`, `mobile-cards`, `mobile-topbar`, `sidebar-desktop`, `bottom-nav`, `page-content`, `main-content`
+- **Primary:** Deep Teal `#0F6E56` / `#0a4a38`
+- **Font:** DM Sans (UI) + DM Serif Display (brand/logo)
+- **Inline styles** throughout (Tailwind v4 resets browser defaults aggressively)
 
 ### 5.2 Project Structure
 
@@ -320,140 +327,246 @@ src/
 │   ├── layout/   ← PageWrapper, Sidebar, BottomNav, ProtectedRoute
 │   └── ui/       ← BottomSheet, TenantDetailSheet, UnitDetailSheet,
 │                    AgreementDetailSheet, PaymentDetailSheet
-├── pages/        ← Dashboard, Tenants, Units, Agreements, Payments, Reports
-├── hooks/        ← useTenants, useUnits, useAgreements, usePayments, useReports
-├── services/     ← api.js (Axios), authService, tenantsService, unitsService,
-│                    agreementsService, paymentsService, reportsService
-└── store/        ← authStore (Zustand + persist)
+├── pages/
+│   ├── DashboardPage.jsx
+│   ├── TenantsPage.jsx
+│   ├── UnitsPage.jsx
+│   ├── AgreementsPage.jsx
+│   ├── PaymentsPage.jsx       ← includes RecordPaymentModal (Record + Manual tabs)
+│   ├── ReportsPage.jsx
+│   ├── SettingsPage.jsx       ← menu page
+│   ├── BusinessProfilePage.jsx  ← company name, address, logo upload
+│   └── ReceiptSettingsPage.jsx  ← prefix, numbering, footer, style
+├── hooks/
+│   ← useTenants, useUnits, useAgreements, usePayments, useReports, useSettings
+├── services/
+│   ← api.js, authService, tenantsService, unitsService,
+│     agreementsService, paymentsService, reportsService, settingsService
+├── store/
+│   ← authStore.js, settingsStore.js
+└── utils/
+    └── receiptGenerator.js   ← jsPDF DIGITAL + FORMAL receipt generation
 ```
 
-### 5.3 Key Architecture Decisions
+### 5.3 Routing (`App.jsx`)
 
-| Decision          | Choice                           | Reason                               |
-|-------------------|----------------------------------|--------------------------------------|
-| Auth state        | Zustand + localStorage           | Survives page refresh                |
-| Server state      | React Query v5                   | Caching, background refetch          |
-| HTTP client       | Axios + interceptors             | Auto-attach JWT, auto-refresh on 401 |
-| Token expiry      | Auto-logout + redirect to /login | No empty broken screens              |
-| CSS approach      | Inline styles                    | Tailwind v4 resets browser defaults  |
-| Search            | Backend JPQL + 400ms debounce    | Works across all pages               |
-| Balance           | Cumulative across all cycles     | Unpaid months carry forward          |
-| Mobile nav        | Bottom nav (6 items) + FAB       | Standard mobile PWA pattern          |
-| Mobile drill-down | Bottom sheet on card tap         | Progressive disclosure               |
-
-### 5.4 Pages
-
-| Page       | Route       | Key Features                                                                                                      |
-|------------|-------------|-------------------------------------------------------------------------------------------------------------------|
-| Login      | /login      | Phone or email, JWT storage                                                                                       |
-| Register   | /register   | Landlord registration                                                                                             |
-| Dashboard  | /dashboard  | Stats, collection progress bar, outstanding tenants, recent payments. Desktop table + mobile cards                |
-| Tenants    | /tenants    | CRUD, search, status filter (ALL/PAID/PARTIAL/UNPAID), cumulative balance, progress bar, mobile drill-down        |
-| Units      | /units      | CRUD, search, available/occupied filter, mobile drill-down                                                        |
-| Agreements | /agreements | Create/Edit (billing model toggle, billing day hint, opening balance), move-out, status filter, mobile drill-down |
-| Payments   | /payments   | Record (cycle date picker), search, date filter, mobile drill-down                                                |
-| Reports    | /reports    | Summary cards, occupancy bar, payment chart, date filter                                                          |
-
-### 5.5 PageWrapper
-
-`PageWrapper` accepts three props:
-- `title` — shown in both desktop and mobile headers
-- `actions` — desktop button(s) shown top-right on desktop
-- `mobileAction` — FAB shown bottom-right on mobile (circular + button)
-
-Mobile header shows title + avatar only. Actions never appear in mobile header.
-
-### 5.6 Mobile Detail Sheets
-
-Tapping any mobile card opens a `BottomSheet` with full record details fetched from the individual GET endpoint. Actions (Edit, Delete, Move-out) live inside the sheet — not on the card.
-
-Components: `TenantDetailSheet`, `UnitDetailSheet`, `AgreementDetailSheet`, `PaymentDetailSheet`.
-
-### 5.7 Billing Cycle Display
-
-All payment periods are displayed as exact cycle date ranges:
 ```
-Apr 15 – May 14   (billing_day = 15)
-Apr 1 – Apr 30    (billing_day = 1)
+/login              → LoginPage (public)
+/register           → RegisterPage (public)
+/dashboard          → DashboardPage (protected)
+/tenants            → TenantsPage (protected)
+/units              → UnitsPage (protected, showBack)
+/agreements         → AgreementsPage (protected, showBack)
+/payments           → PaymentsPage (protected)
+/reports            → ReportsPage (protected, showBack)
+/settings           → SettingsPage (protected)
+/settings/business-profile  → BusinessProfilePage (protected, showBack)
+/settings/receipt-settings  → ReceiptSettingsPage (protected, showBack)
 ```
 
-Helper functions used across all pages:
+TokenGuard component in App.jsx checks token expiry on mount and visibilitychange.
+
+### 5.4 Bottom Navigation (Mobile)
+
+4 items: Dashboard, Tenants, Payments, Settings
+
+Desktop sidebar has all links: Dashboard, Tenants, Payments, Reports, Units, Agreements.
+
+### 5.5 Stores
+
+#### `authStore.js` (Zustand + persist)
+
 ```js
-formatCycleDate(dateStr)  // "Apr 15"
-formatCycle(start, end)   // "Apr 15 – May 14"
+{
+    accessToken, refreshToken, landlord
+:
+    {
+        name, phoneNumber, email
+    }
+,
+    setAuth(data),        // called after login
+        setAccessToken(token), // called after silent refresh
+        logout(),             // clears all auth state
+        isTokenExpired(),     // decodes JWT exp, returns true if expired
+        isRefreshTokenExpired(), // same for refresh token
+}
 ```
 
-### 5.8 Cumulative Balance Computation Flow
+#### `settingsStore.js` (Zustand + persist)
 
-```
-GET /tenants (or /tenants/{id})
-  → TenantService.enrichWithBalance():
-      1. Find active agreement
-      2. If none → return base tenant (balance fields = null)
-      3. cyclesElapsed = BillingCycleUtils.cyclesElapsed(agreement)
-      4. totalEverOwed = rentAmount × cyclesElapsed
-      5. openingCredit  = max(0, openingBalance)
-      6. openingArrears = abs(min(0, openingBalance))
-      7. totalEverOwed  = totalEverOwed - openingCredit + openingArrears
-      8. totalEverPaid  = sumAllByAgreement(agreementId)
-      9. outstanding    = max(0, totalEverOwed - totalEverPaid)
-     10. currentCycleStart/End from BillingCycleUtils
-     11. Return enriched TenantResponse
+```js
+{
+    settings: {
+        companyName, logoUrl, receiptPrefix, nextReceiptNo,
+            receiptNumbering, receiptFooter, receiptStyle, address
+    }
+,
+    setSettings(settings),  // called after login + after settings update
+        clearSettings(),        // called on logout
+}
 ```
 
-### 5.9 BillingCycleUtils (Backend)
+Settings are fetched immediately after login in `LoginPage.jsx` and stored in `settingsStore`. Used by `Sidebar` and
+`PageWrapper` for branding.
 
-Located at `shared/util/BillingCycleUtils.java`.
+### 5.6 Token Expiry / PWA Resume
 
-Key methods:
-- `currentCycleStart(agreement)` — finds the current cycle start based on billing_day and today
-- `cycleEnd(cycleStart, billingDay)` — returns day before next cycle start
-- `cyclesElapsed(agreement)` — counts due cycles:
-    - ADVANCE: current cycle immediately due, includes current
-    - ARREARS: only completed cycles are due
-- Guard: if `startDate` is in the future, returns 0
-- Max billing_day = 28 to avoid February issues
+Three-layer protection:
 
-### 5.10 Overpayment Rollover Flow
+1. **`ProtectedRoute`** — redirects to `/login` if refresh token expired on every route render
+2. **`TokenGuard`** — checks on mount + `visibilitychange` (PWA resume from background)
+3. **Axios interceptor** — on 401, checks refresh token expiry first; if valid silently refreshes; if expired calls
+   `logout()` + `window.location.href = "/login"`
 
-```
-POST /payments (amount > rentAmount)
-  → PaymentService:
-      1. Save CASH payment, overpayment = amount - rentAmount
-      2. nextCycleStart = periodEndDate + 1 day
-      3. createRolloverPayment(agreement, overpayment, nextCycleStart)
-      4. createRolloverPayment:
-         a. Check duplicate — existsByAgreementIdAndPeriodStartDateAndSource()
-         b. actualRollover = min(overpayment, rentAmount)
-         c. remainingOverpayment = overpayment - rentAmount (if any)
-         d. Save ROLLOVER payment for next cycle
-         e. Recurse if remainingOverpayment > 0
+### 5.7 PageWrapper Props
+
+```jsx
+<PageWrapper
+    title="Page Title"
+    actions={<button>Desktop button</button>}   // desktop topbar right
+    mobileAction={<button>+</button>}           // FAB bottom-right mobile
+    showBack                                    // adds ← back arrow in mobile header
+>
 ```
 
-### 5.11 Token Expiry Handling
+Mobile header: brand name (from settingsStore or "RentFlow") + page title as subtitle + avatar dropdown.
+Desktop topbar: page title + actions.
 
-Axios response interceptor handles 401 responses:
-1. Try to refresh using stored `refreshToken` via `/auth/refresh`
-2. If refresh succeeds — store new `accessToken`, retry original request silently
-3. If refresh fails (token expired or missing) — call `logout()`, redirect to `/login`
-4. `ProtectedRoute` additionally redirects to `/login` if `accessToken` is null
+### 5.8 BottomSheet Component
+
+Renders as:
+
+- **Mobile** — slides up from bottom (85vh, rounded top corners)
+- **Desktop** — centered modal (520px wide, vertically centered)
+
+Uses `mobile-cards` / `desktop-table` CSS classes for responsive switching.
+
+### 5.9 Balance Computation (Backend — TenantService)
+
+```
+cyclesElapsed = BillingCycleUtils.cyclesElapsed(agreement)
+totalEverOwed = rentAmount × cyclesElapsed
+openingCredit  = max(0, openingBalance)
+openingArrears = abs(min(0, openingBalance))
+totalEverOwed  = totalEverOwed - openingCredit + openingArrears
+totalEverPaid  = sumAllByAgreement(agreementId)
+outstanding    = max(0, totalEverOwed - totalEverPaid)
+currentCycleStart/End = BillingCycleUtils.currentCycleStart/cycleEnd
+currentCyclePaid = sumByAgreementAndCycle(agreementId, cycleStart, cycleEnd) >= rentAmount
+```
+
+### 5.10 BillingCycleUtils (Backend)
+
+- `currentCycleStart(agreement)` — finds current cycle start based on billingDay
+- `cycleEnd(cycleStart, billingDay)` — day before next cycle start
+- `cyclesElapsed(agreement)`:
+    - ADVANCE: current cycle counts immediately
+    - ARREARS: only completed cycles count
+    - Guard: if startDate in future → returns 0
+- Max billingDay = 28
+
+### 5.11 Dashboard Metrics
+
+```
+totalMonthlyRent = sum of all active tenants' monthlyRent
+totalOutstanding = sum of currentBalance for UNPAID + PARTIAL tenants (cumulative)
+paidThisMonth    = sum of monthlyRent for tenants where currentCyclePaid === true
+collectionPct    = paidThisMonth / totalMonthlyRent × 100
+
+Progress bar uses collectionPct (current cycle paid / total monthly rent)
+Desktop shows: Monthly Rent | Paid This Month | Total Outstanding
+Mobile shows:  Monthly | Paid | Outstanding (3 boxes)
+```
+
+### 5.12 Receipt Generation (`src/utils/receiptGenerator.js`)
+
+```js
+generateReceipt(payment, settings, receiptNumber)
+```
+
+Two styles driven by `settings.receiptStyle`:
+
+**DIGITAL** — Branded, dark green header, amount box, details grid, signature line.
+
+**FORMAL** — Matches physical receipt book. RECEIPT title box, dotted lines, "Received from", "The sum of Shillings", "
+Being payment of", amount box with border, signed line.
+
+Both styles:
+
+- Load logo from Cloudinary via `loadImageAsBase64()` (canvas conversion for jsPDF)
+- Convert amount to words via `numberToWords()` (e.g. "One Hundred Eighty Thousand Shillings Only")
+- A5 portrait format
+- Filename: `{receiptNumber}-{tenantName}.pdf`
+
+**Manual receipt** fields (when `payment.isManual === true`):
+
+- `manualPeriod` — free text period string (e.g. "1 Apr – 30 Apr")
+- `balance` — manually entered remaining balance
+- Period display uses `manualPeriod` instead of `formatCycle()`
+- Balance uses `payment.balance` instead of computing from expectedAmount
+
+### 5.13 Record Payment Modal — Two Tabs
+
+**Record Payment tab:**
+
+- Select active agreement (tenant + unit auto-populated)
+- Billing cycle picker (last 6 cycles, generated from billingDay)
+- Amount, payment date, reference, notes
+- On submit: `POST /payments` → success screen → download receipt option
+
+**Manual Receipt tab:**
+
+- Select tenant (name + currentUnit auto-populated from tenant list)
+- Amount, period (free text), payment date, payment by (Cash/Mobile Money/Bank Transfer/Cheque)
+- Balance remaining, reference, notes
+- Style toggle (Digital / Formal) — overrides settings default
+- On submit: fetches receipt number → generates PDF → downloads immediately → NO database write
+
+### 5.14 Branding (White-label per landlord)
+
+After login, settings are fetched and stored in `settingsStore`. All UI reads from store:
+
+- **Sidebar (desktop):** shows `logoUrl` (img) or `companyName` (text) + "Property Management" subtitle
+- **Mobile header:** shows `companyName` as brand line, page title as subtitle
+- **Avatar dropdown:** shows logo/initial + companyName
+- **Login page:** always shows "RentFlow" (before landlord identified)
+- **Receipts:** show logo + companyName + address
+
+### 5.15 Settings Pages
+
+**BusinessProfilePage** (`/settings/business-profile`):
+
+- Logo upload (file picker → preview → POST /settings/logo → Cloudinary)
+- Company name, address
+- Updates settingsStore immediately on save
+
+**ReceiptSettingsPage** (`/settings/receipt-settings`):
+
+- Numbering mode toggle (AUTO / MANUAL)
+- Receipt prefix (e.g. RCP)
+- Next receipt number (with live preview: RCP-001)
+- Receipt style default (Digital / Formal)
+- Footer message
 
 ---
 
 ## 6. Security
 
 ### 6.1 JWT Strategy
-- Access tokens signed with HS512, contain `userId` (landlordId)
-- `JwtAuthFilter` validates every request, populates SecurityContext — no DB call
-- `JwtUtils.getCurrentLandlordId()` reads landlordId from SecurityContext
-- Frontend: request interceptor attaches Bearer token
-- Frontend: response interceptor auto-refreshes on 401, auto-logouts on refresh failure
 
-### 6.2 Password Encoding
-BCrypt. Plain text never stored or logged.
+- HS512 signed, contain `userId` (landlordId)
+- `JwtAuthFilter` validates every request, populates SecurityContext
+- `JwtUtils.getCurrentLandlordId()` reads from SecurityContext — no DB call
+- Frontend: request interceptor attaches Bearer token
+- Frontend: response interceptor auto-refreshes on 401
+
+### 6.2 Password
+
+BCrypt. Never stored or logged as plain text.
 
 ### 6.3 CORS
-Allowed: `http://localhost:5173` (dev), `https://yourdomain.com` (prod)
+
+Allowed origins: `http://localhost:5173` (dev), production domain.
 
 ---
 
@@ -463,141 +576,159 @@ Allowed: `http://localhost:5173` (dev), `https://yourdomain.com` (prod)
 
 ```
 Contabo VPS
-├── Nginx container (ports 80 / 443)
-│   ├── / → rental-frontend (port 3000)
-│   └── /api/ → rental-backend (port 8081)
-├── rental-backend (port 8081)
+├── Nginx (80/443) → routes / to frontend, /api/ to backend
+├── rental-backend (port 8082)
 ├── rental-frontend (port 3000)
 └── postgres (port 5432, internal only)
 ```
 
-### 7.2 Frontend Dockerfile
+### 7.2 Environment Variables
 
-```dockerfile
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps
-COPY . .
-RUN npm run build
+| Variable                                                         | Used By   |
+|------------------------------------------------------------------|-----------|
+| DB_URL, DB_USERNAME, DB_PASSWORD                                 | Backend   |
+| JWT_SECRET, JWT_EXPIRY_MS, JWT_REFRESH_EXPIRY_MS                 | Backend   |
+| CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET | Backend   |
+| VITE_API_BASE_URL                                                | Frontend  |
+| SERVER_SSH_KEY, SERVER_IP                                        | GitLab CI |
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
+### 7.3 Cloudinary
 
-### 7.3 Environment Variables
+Logo uploads via `fileStorageService.upload(file, "landlord/logo", landlordId)`.
 
-| Variable              | Used By   |
-|-----------------------|-----------|
-| DB_URL                | Backend   |
-| DB_USERNAME           | Backend   |
-| DB_PASSWORD           | Backend   |
-| JWT_SECRET            | Backend   |
-| JWT_EXPIRY_MS         | Backend   |
-| JWT_REFRESH_EXPIRY_MS | Backend   |
-| VITE_API_BASE_URL     | Frontend  |
-| SERVER_SSH_KEY        | GitLab CI |
-| SERVER_IP             | GitLab CI |
+- `public_id = landlordId` → re-upload overwrites previous logo
+- Stored at `rentflow/logos/{landlordId}`
+- URL stored in `landlord_settings.logo_url`
 
 ---
 
-## 8. Development Plan — Status
+## 8. Development Status
 
-| Phase | Task                                                    | Status        |
-|-------|---------------------------------------------------------|---------------|
-| 1–10  | Core backend (auth, CRUD, search, Docker)               | ✅ Done        |
-| 11–17 | Frontend (auth, layout, all pages, PWA)                 | ✅ Done        |
-| 18    | V8 migration — tenant_type + opening_balance            | ✅ Done        |
-| 19    | V9 migration — payment period fields                    | ✅ Done        |
-| 20    | Agreement NEW/EXISTING + opening balance flow           | ✅ Done        |
-| 21    | Payment period recording + overpayment rollover         | ✅ Done        |
-| 22    | Tenant cumulative balance enrichment                    | ✅ Done        |
-| 23    | Frontend — agreement modal NEW/EXISTING + billing model | ✅ Done        |
-| 24    | Frontend — payment cycle date picker                    | ✅ Done        |
-| 25    | Frontend — tenant balance progress bar                  | ✅ Done        |
-| 26    | Frontend — dashboard mobile optimisation                | ✅ Done        |
-| 27    | Frontend — mobile card drill-down (bottom sheets)       | ✅ Done        |
-| 28    | V10 migration — billing_day + billing_model             | ✅ Done        |
-| 29    | V11 migration — period_start_date + period_end_date     | ✅ Done        |
-| 30    | BillingCycleUtils — ADVANCE/ARREARS cycle calculation   | ✅ Done        |
-| 31    | Frontend — cycle date display (Apr 15 – May 14)         | ✅ Done        |
-| 32    | Frontend — edit agreement modal                         | ✅ Done        |
-| 33    | Token expiry — auto-logout + redirect to login          | ✅ Done        |
-| 34    | GitLab CI frontend deployment                           | ⏳ In Progress |
-| 35    | Nginx reverse proxy + SSL                               | ⏳ In Progress |
+| Feature                                                              | Status                         |
+|----------------------------------------------------------------------|--------------------------------|
+| Auth (register, login, refresh, auto-logout)                         | ✅ Done                         |
+| Tenant CRUD + search                                                 | ✅ Done                         |
+| Unit CRUD + search + availability                                    | ✅ Done                         |
+| Agreement CRUD + billing model + billing day                         | ✅ Done                         |
+| Payment recording + cycle picker + overpayment rollover              | ✅ Done                         |
+| Cumulative balance computation                                       | ✅ Done                         |
+| currentCyclePaid field on TenantResponse                             | ✅ Done                         |
+| Reports (summary, payments, occupancy)                               | ✅ Done                         |
+| Dashboard — stats + outstanding + recent payments                    | ✅ Done                         |
+| Mobile PWA — bottom nav + FAB + bottom sheets                        | ✅ Done                         |
+| Token expiry — TokenGuard + ProtectedRoute + interceptor             | ✅ Done                         |
+| Settings — GET/PUT /settings (auto-create defaults)                  | ✅ Done                         |
+| Logo upload — Cloudinary via POST /settings/logo                     | ✅ Done                         |
+| Receipt numbering — POST /settings/receipt-number                    | ✅ Done                         |
+| BusinessProfilePage                                                  | ✅ Done                         |
+| ReceiptSettingsPage                                                  | ✅ Done                         |
+| White-label branding (logo + company name in sidebar/header)         | ✅ Done                         |
+| Receipt generation — DIGITAL style (jsPDF)                           | ✅ Done                         |
+| Receipt generation — FORMAL style (jsPDF)                            | ✅ Done                         |
+| Receipt download from PaymentDetailSheet                             | ✅ Done                         |
+| Receipt download after recording payment                             | ✅ Done                         |
+| Manual receipt tab (no DB write, tenant picker + manual fields)      | ✅ Done                         |
+| Settings page — mobile menu with Business Profile + Receipt Settings | ✅ Done                         |
+| GitLab CI frontend deployment                                        | ✅ Done                         |
+| Multi-property support                                               | ⏳ Pending (next major feature) |
+| MTN/Airtel mobile money integration                                  | ⏳ Post-MVP                     |
+| Email/SMS notifications                                              | ⏳ Post-MVP                     |
 
 ---
 
 ## 9. Engineering Conventions
 
 ### Backend
+
 - Every service method calls `JwtUtils.getCurrentLandlordId()` — never from request body
-- All entities extend `BaseEntity` (id: UUID, createdAt via JPA Auditing)
+- All entities extend `BaseEntity` (UUID id, createdAt via JPA Auditing)
 - DTOs for all API request/response — entities never exposed directly
-- Flyway migrations: `V{n}__{description}.sql`
+- Flyway: `V{n}__{description}.sql`
 - All monetary values: `DECIMAL(12,2)` — no floating point
 - JPQL search: `CAST(:param AS string)` to avoid PostgreSQL bytea errors
-- Nullable date params in JPQL: separate repository methods
-- `@Builder.Default` on Lombok builder fields with default values
-- Opening balance only applied for `EXISTING` tenants
-- Rollover uses unique index: `(agreement_id, period_start_date, source=ROLLOVER)`
-- `sumAllByAgreement()` uses `COALESCE(SUM(...), 0)` to return zero not null
-- `billing_day` derived from `start_date`, capped at 28 — never stored as user input
-- `billing_day` defaults to 1 for EXISTING tenants without a start_date
-- ARREARS: only completed cycles are due — current in-progress cycle not counted
-- ADVANCE: current cycle is due immediately from billing day
-- Future `start_date` guard: cyclesElapsed returns 0 if startDate > today
+- `@Builder.Default` on Lombok builder fields with defaults
+- `sumAllByAgreement()` uses `COALESCE(SUM(...), 0)` — never returns null
+- `billing_day` derived from `start_date`, capped at 28 — never user input
+- ARREARS: only completed cycles counted. ADVANCE: current cycle counted immediately
+- Future `start_date` guard: `cyclesElapsed` returns 0 if startDate > today
+- Rollover dedup: unique index on `(agreement_id, period_start_date, source=ROLLOVER)`
+- Settings auto-created with defaults on first GET — never 404
+- Receipt number incremented atomically in `getNextReceiptNumber()`
+- Logo re-upload uses same Cloudinary `public_id` (landlordId) — overwrites previous
 
 ### Frontend
-- All API calls via central Axios instance in `services/api.js`
+
+- All API calls via central `src/services/api.js` (Axios instance)
 - JWT attached via request interceptor
-- Token refresh on 401 via response interceptor — auto-logout on refresh failure
-- `ProtectedRoute` redirects to `/login` if no accessToken
+- 401 → try refresh → if refresh expired → logout() + redirect to /login
+- `ProtectedRoute` checks `isRefreshTokenExpired()` on every render
+- `TokenGuard` checks on mount + `visibilitychange`
 - React Query keys: `['resource', params]`
 - 400ms debounce on all search inputs
-- Inline styles throughout (Tailwind v4 resets)
-- `nullIfEmpty` converts `""` to `null` for optional fields in all onSubmit handlers
+- `nullIfEmpty(val)` — converts `""` to `null` for optional fields in all onSubmit handlers
 - `void queryClient.invalidateQueries(...)` to suppress ESLint promise warnings
-- Balance columns: red for outstanding, green "Paid up" for zero
-- Period display: `formatCycle(periodStartDate, periodEndDate)` — never month/year
-- `generateCycles(agreement)` produces last 6 billing cycles for the cycle picker
-- `getOrdinal(n)` formats billing day as 1st, 2nd, 3rd, 4th, 15th etc.
-- Mobile cards are tappable — bottom sheet opens on tap, not inline expand
-- Edit/Delete/Move-out actions live inside detail sheets, not on cards
-- FAB (circular +) for mobile create actions — never in mobile header
-- Mobile header: title + avatar only — no action buttons
+- Inline styles throughout — Tailwind v4 resets aggressively
+- `formatUGXShort`: `.toFixed(2).replace(/\.?0+$/, "")M` → `1.51M` not `1.5M`
+- `getOrdinal(n)` → "1st", "2nd", "15th" for billing day display
+- `generateCycles(agreement)` — produces last 6 billing cycles for cycle picker
+- Mobile: cards tappable → BottomSheet opens. Edit/Delete/Move-out inside sheet.
+- FAB (circular +) for mobile create. Never in mobile header.
+- `settingsStore` loaded after login, cleared on logout
+- Branding reads from `settingsStore` — fallback to "RentFlow" if not set
 
 ---
 
 ## 10. Architecture Decisions Log
 
-| Decision                   | Choice                                                              | Rejected                           | Reason                                           |
-|----------------------------|---------------------------------------------------------------------|------------------------------------|--------------------------------------------------|
-| Multi-tenancy              | Shared schema + landlord_id                                         | Schema-per-landlord                | Simpler ops                                      |
-| Auth                       | JWT + Refresh Tokens                                                | Session-based                      | Stateless, PWA-friendly                          |
-| Token expiry UX            | Auto-logout + redirect                                              | Show empty screens / unlock button | Clean, standard, no confusion                    |
-| Agreement lifecycle        | Explicit move-out                                                   | Auto-expiry by end date            | End dates not always known                       |
-| start_date                 | Nullable                                                            | Required                           | Legacy tenants may not know move-in date         |
-| Billing cycle              | Derived from move-in day                                            | Calendar month only                | Matches real-world tenant expectations           |
-| Billing day cap            | Max 28                                                              | Max 31                             | Avoids February 29/30/31 issues                  |
-| Billing model              | Per agreement (ADVANCE/ARREARS)                                     | Per landlord                       | Different tenants have different arrangements    |
-| Payment period             | period_start_date + period_end_date                                 | period_month + period_year         | Exact dates needed for mid-month billing cycles  |
-| Overpayment                | Auto-create ROLLOVER                                                | Manual credit                      | Reduces landlord workload                        |
-| Rollover dedup             | Unique index on (agreement_id, period_start_date, source)           | App-level check                    | Database-enforced                                |
-| Balance computation        | Cumulative all-time                                                 | Current month only                 | Unpaid months must carry forward                 |
-| Opening balance            | On Agreement                                                        | On Tenant                          | Scoped to a specific tenancy                     |
-| EXISTING tenant onboarding | startDate = first future cycle, openingBalance = historical arrears | startDate = first unpaid cycle     | Simpler for landlord — enter arrears manually    |
-| Period status              | Computed in PaymentResponse.from()                                  | Stored column                      | Always accurate, no sync issues                  |
-| Outstanding computation    | TenantService enrichment on every GET                               | Scheduled batch                    | Real-time accuracy                               |
-| Mobile layout              | Cards + bottom sheet drill-down                                     | Horizontal scroll table            | Readable on small screens                        |
-| Mobile create action       | FAB (floating action button)                                        | Button in header                   | Standard mobile PWA pattern, clean header        |
-| Mobile sign-out            | Avatar dropdown in header                                           | Bottom nav item                    | Saves nav space, standard pattern                |
-| Desktop edit agreements    | Edit button in table row                                            | Separate edit page                 | Inline, no navigation required                   |
-| CSS approach               | Inline styles                                                       | Tailwind utility classes           | Tailwind v4 resets browser defaults aggressively |
+| Decision            | Choice                                                              | Reason                                    |
+|---------------------|---------------------------------------------------------------------|-------------------------------------------|
+| Multi-tenancy       | Shared schema + landlord_id                                         | Simpler ops                               |
+| Auth                | JWT + Refresh Tokens                                                | Stateless, PWA-friendly                   |
+| Token expiry UX     | Auto-logout + redirect to /login                                    | No blank screens                          |
+| Billing cycle       | Derived from move-in day (billingDay)                               | Real-world tenant expectation             |
+| Billing day cap     | Max 28                                                              | Avoids Feb 29/30/31 issues                |
+| Billing model       | Per agreement (ADVANCE/ARREARS)                                     | Different tenants, different arrangements |
+| Payment period      | period_start_date + period_end_date                                 | Exact dates for mid-month cycles          |
+| Overpayment         | Auto-create ROLLOVER                                                | Reduces landlord workload                 |
+| Balance             | Cumulative all-time                                                 | Unpaid months carry forward               |
+| Opening balance     | On Agreement                                                        | Scoped to a specific tenancy              |
+| EXISTING onboarding | startDate = first future cycle, openingBalance = historical arrears | Simple for landlord                       |
+| Period status       | Computed in TenantService enrichment                                | Always accurate, no sync issues           |
+| currentCyclePaid    | sumByAgreementAndCycle >= rentAmount                                | Period-based not payment-date-based       |
+| Dashboard progress  | paidThisMonth (currentCyclePaid=true) / totalMonthlyRent            | Avoids mixing cumulative + monthly        |
+| Logo storage        | Cloudinary                                                          | CDN, auto-resize, no VPS disk management  |
+| Receipt format      | A5 portrait, jsPDF                                                  | Works on mobile, WhatsApp-shareable       |
+| Receipt numbering   | Atomic increment in DB                                              | No duplicate numbers                      |
+| Manual receipt      | No DB write, tenant picker only                                     | Clean separation from payment records     |
+| Settings branding   | settingsStore (Zustand persisted)                                   | Available everywhere without re-fetch     |
+| Mobile nav          | 4 items (Dashboard, Tenants, Payments, Settings)                    | Clean, daily workflow items only          |
+| Settings page       | Menu → sub-pages (Business Profile, Receipt Settings)               | Scalable, familiar iOS pattern            |
+| BottomSheet         | Bottom on mobile, centered modal on desktop                         | Appropriate for each viewport             |
+| CSS approach        | Inline styles                                                       | Tailwind v4 resets browser defaults       |
 
 ---
 
-*Document updated to v5.0 — reflects billing cycle (ADVANCE/ARREARS), cycle date periods, BillingCycleUtils, edit agreement, token expiry handling, mobile drill-down sheets, FAB pattern, and cumulative balance computation.*
+## 11. Pending Features
+
+### Multi-Property Support (Next Major Feature)
+
+Landlords with multiple properties need to:
+
+- Create named properties (e.g. "Kamwokya Flats", "Nansana Apartments")
+- Assign units to a specific property
+- Filter dashboard, tenants, payments by property
+- See per-property and all-property views
+
+**Estimated impact:**
+
+- New `properties` table with `landlord_id`
+- `property_id` FK on `rental_units`
+- All queries gain optional `property_id` filter
+- Frontend: property switcher in sidebar/header
+- Dashboard: per-property stats or aggregate toggle
+
+### Other Pending
+
+- MTN / Airtel mobile money integration
+- Email / SMS payment notifications
+- Tenant portal (tenant-facing view of their balance + receipts)

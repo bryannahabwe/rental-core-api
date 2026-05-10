@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Rental Management API
+  title: Rental Management API — RentFlow
   description: |
     Multi-tenant SaaS API for rental property management in Uganda.
 
@@ -13,8 +13,9 @@ info:
 
     ## Token Expiry
     - Access tokens expire after 24 hours.
-    - On 401, the frontend attempts a silent refresh via `/auth/refresh`.
-    - If refresh fails, the user is logged out and redirected to `/login`.
+    - On 401, the frontend Axios interceptor checks if the refresh token is expired.
+    - If refresh token is still valid → silent refresh via `/auth/refresh`, retry original request.
+    - If refresh token is also expired → `logout()` + redirect to `/login`.
 
     ## Pagination
     All list endpoints support: `page` (default 0), `size` (default 10),
@@ -22,27 +23,37 @@ info:
 
     ## Billing Cycles
     Each agreement has a `billingDay` (1–28) derived automatically from
-    `startDate`. Payments are recorded against exact cycle date ranges
+    `startDate` (day of month, capped at 28 to avoid February issues).
+    Payments are recorded against exact cycle date ranges
     (`periodStartDate` to `periodEndDate`) rather than month/year numbers.
 
-    Two billing models are supported per agreement:
+    Two billing models per agreement:
     - `ADVANCE` — tenant pays at the start of each cycle
     - `ARREARS` — tenant pays at the end of each cycle
 
     ## Balance Computation
-    Outstanding balance is cumulative across all cycles, not just the current month.
-    Unpaid previous months are automatically included.
+    Outstanding balance is cumulative across ALL billing cycles, not just the current month.
+    Unpaid previous months carry forward automatically.
+
+    `currentCyclePaid` (Boolean) indicates whether the tenant has paid their
+    current cycle specifically — based on payments whose periodStartDate/periodEndDate
+    match the current cycle, not the payment recording date.
 
     ## Overpayment
     When a payment exceeds the expected amount, the excess is auto-applied
     as a ROLLOVER payment to the next cycle. Chains recursively if needed.
 
-  version: 4.0.0
+    ## Settings
+    Each landlord has a settings row (auto-created with defaults on first GET).
+    Settings control: company name, logo (Cloudinary), receipt prefix,
+    receipt numbering (AUTO/MANUAL), receipt footer, and receipt style (DIGITAL/FORMAL).
+
+  version: 5.0.0
 
 servers:
-  - url: http://localhost:8081/api/v1
+  - url: http://localhost:8082/api/v1
     description: Local development
-  - url: https://<your-domain>/api/v1
+  - url: https://rental-api.askmoozo.com/api/v1
     description: Production
 
 tags:
@@ -52,6 +63,7 @@ tags:
   - name: Agreements
   - name: Payments
   - name: Reports
+  - name: Settings
 
 paths:
 
@@ -59,7 +71,7 @@ paths:
 
   /auth/register:
     post:
-      tags: [Auth]
+      tags: [ Auth ]
       summary: Register a new landlord
       requestBody:
         required: true
@@ -68,8 +80,8 @@ paths:
             schema:
               $ref: '#/components/schemas/RegisterRequest'
             example:
-              name: Bryan Nahabwe
-              phoneNumber: "0771234567"
+              name: Brian Nahabwe
+              phoneNumber: "256774010511"
               password: secret123
       responses:
         '200':
@@ -83,8 +95,12 @@ paths:
 
   /auth/login:
     post:
-      tags: [Auth]
-      summary: Login with phone or email
+      tags: [ Auth ]
+      summary: Login with phone number or email
+      description: |
+        Returns accessToken, refreshToken, name, phoneNumber, email.
+        Frontend stores in authStore (Zustand + localStorage).
+        Frontend also immediately fetches GET /settings after login to populate settingsStore.
       requestBody:
         required: true
         content:
@@ -93,9 +109,9 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
             examples:
               phone:
-                value: { username: "0771234567", password: secret123 }
+                value: { username: "256774010511", password: secret123 }
               email:
-                value: { username: bryan@example.com, password: secret123 }
+                value: { username: brian@example.com, password: secret123 }
       responses:
         '200':
           description: Login successful
@@ -108,12 +124,13 @@ paths:
 
   /auth/refresh:
     post:
-      tags: [Auth]
+      tags: [ Auth ]
       summary: Refresh access token
       description: |
         Exchange a valid refresh token for a new access token.
-        Called automatically by the frontend Axios interceptor on 401.
-        If this call fails, the user is logged out and redirected to /login.
+        Called automatically by the Axios response interceptor on 401.
+        The interceptor checks isRefreshTokenExpired() before calling this —
+        if the refresh token is already expired it skips directly to logout().
       requestBody:
         required: true
         content:
@@ -134,21 +151,24 @@ paths:
 
   /tenants:
     get:
-      tags: [Tenants]
+      tags: [ Tenants ]
       summary: List all tenants with cumulative balance
       description: |
-        Returns paginated tenants enriched with their cumulative outstanding balance.
-        Balance is computed across ALL billing cycles, not just the current month.
-        Unpaid previous months are included automatically.
+        Returns paginated tenants, each enriched with balance data from their active agreement.
 
-        Balance computation:
+        **Balance computation (TenantService.enrichWithBalance):**
         1. Find active agreement
         2. cyclesElapsed = BillingCycleUtils.cyclesElapsed(agreement)
         3. totalEverOwed = rentAmount × cyclesElapsed
-        4. Apply opening balance (credit or arrears)
-        5. outstanding = totalEverOwed - sumAllPayments
+        4. openingCredit = max(0, openingBalance); openingArrears = abs(min(0, openingBalance))
+        5. totalEverOwed = totalEverOwed - openingCredit + openingArrears
+        6. totalEverPaid = sumAllByAgreement(agreementId)
+        7. outstanding = max(0, totalEverOwed - totalEverPaid)
+        8. currentCyclePaid = sumByAgreementAndCycle(agreementId, cycleStart, cycleEnd) >= rentAmount
+
+        If tenant has no active agreement, all balance fields return null.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -170,16 +190,21 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     post:
-      tags: [Tenants]
+      tags: [ Tenants ]
       summary: Create a tenant
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TenantRequest'
+            example:
+              name: Jane Namukasa
+              phone: "0772000001"
+              email: jane@example.com
+              address: Kamwokya, Kampala
       responses:
         '201':
           description: Tenant created
@@ -194,10 +219,10 @@ paths:
 
   /tenants/{id}:
     get:
-      tags: [Tenants]
-      summary: Get a tenant with cumulative balance
+      tags: [ Tenants ]
+      summary: Get a single tenant with cumulative balance
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -213,10 +238,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     put:
-      tags: [Tenants]
+      tags: [ Tenants ]
       summary: Update a tenant
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -238,10 +263,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     delete:
-      tags: [Tenants]
+      tags: [ Tenants ]
       summary: Delete a tenant
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -256,10 +281,10 @@ paths:
 
   /units:
     get:
-      tags: [Units]
-      summary: List all units (paginated + search + availability)
+      tags: [ Units ]
+      summary: List all units (paginated + search + availability filter)
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -285,16 +310,21 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     post:
-      tags: [Units]
+      tags: [ Units ]
       summary: Create a unit
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/RentalUnitRequest'
+            example:
+              roomNumber: A1
+              description: Self-contained, ground floor
+              rentAmount: 350000
+              isAvailable: true
       responses:
         '201':
           description: Unit created
@@ -309,10 +339,10 @@ paths:
 
   /units/{id}:
     get:
-      tags: [Units]
+      tags: [ Units ]
       summary: Get a unit
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -328,10 +358,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     put:
-      tags: [Units]
+      tags: [ Units ]
       summary: Update a unit
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -353,10 +383,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     delete:
-      tags: [Units]
+      tags: [ Units ]
       summary: Delete a unit
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -371,10 +401,10 @@ paths:
 
   /agreements:
     get:
-      tags: [Agreements]
-      summary: List all agreements (paginated + search + status)
+      tags: [ Agreements ]
+      summary: List all agreements (paginated + search + status filter)
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -384,6 +414,7 @@ paths:
           in: query
           schema:
             type: string
+          description: Partial match on tenant name or room number
         - name: status
           in: query
           schema:
@@ -399,27 +430,29 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     post:
-      tags: [Agreements]
+      tags: [ Agreements ]
       summary: Create an agreement
       description: |
         Creates an agreement linking a tenant to a unit.
 
         **billingDay** is derived automatically from `startDate` (day of month, capped at 28).
+        Never sent by client — always computed server-side.
+
         **billingModel** defaults to ADVANCE if not provided.
 
         **NEW tenant** — startDate required, openingBalance defaults to 0.
 
         **EXISTING tenant** — set `startDate` to the first billing cycle you want
-        the system to track going forward. Set `openingBalance` to the total unpaid
-        amount before that date (negative = owes arrears, positive = paid ahead).
+        the system to track going forward. Set `openingBalance` to:
+        - Negative = total unpaid amount before startDate (arrears)
+        - Positive = amount paid ahead before startDate (credit)
 
-        Example for ARREARS tenant who last paid Dec 15→Jan 14, onboarding Apr 15:
-        - startDate = 2026-04-15 (next cycle start)
-        - openingBalance = -540000 (3 months × 180,000 owed before Apr 15)
+        Example: ARREARS tenant onboarding on Apr 15, owes 3 months × 180,000:
+        - startDate = 2026-04-15
+        - openingBalance = -540000
         - billingModel = ARREARS
-        - System outstanding today = 540,000 (from opening) + 0 (Apr cycle not due yet)
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
@@ -427,8 +460,8 @@ paths:
             schema:
               $ref: '#/components/schemas/RentalAgreementRequest'
             examples:
-              new_tenant:
-                summary: New tenant
+              new_tenant_advance:
+                summary: New tenant — ADVANCE billing
                 value:
                   tenantId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                   unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
@@ -437,22 +470,22 @@ paths:
                   startDate: "2026-04-01"
                   rentAmount: 350000
                   depositAmount: 700000
-              existing_advance:
-                summary: Existing tenant — ADVANCE, in arrears
+              new_tenant_arrears:
+                summary: New tenant — ARREARS billing
+                value:
+                  tenantId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                  unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+                  tenantType: NEW
+                  billingModel: ARREARS
+                  startDate: "2026-04-15"
+                  rentAmount: 180000
+              existing_in_arrears:
+                summary: Existing tenant — owes 3 months
                 value:
                   tenantId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                   unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
                   tenantType: EXISTING
                   billingModel: ADVANCE
-                  startDate: "2026-04-15"
-                  openingBalance: -540000
-              existing_arrears:
-                summary: Existing tenant — ARREARS, in arrears
-                value:
-                  tenantId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                  unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
-                  tenantType: EXISTING
-                  billingModel: ARREARS
                   startDate: "2026-04-15"
                   openingBalance: -540000
               existing_paid_ahead:
@@ -478,10 +511,10 @@ paths:
 
   /agreements/{id}:
     get:
-      tags: [Agreements]
+      tags: [ Agreements ]
       summary: Get an agreement
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -497,15 +530,14 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     put:
-      tags: [Agreements]
+      tags: [ Agreements ]
       summary: Update an agreement
       description: |
-        Updates allowed fields on an existing agreement.
-        Updatable: rentAmount, depositAmount, startDate, billingModel, openingBalance.
-        billingDay is re-derived from startDate if startDate is updated.
+        Updatable fields: rentAmount, depositAmount, startDate, billingModel, openingBalance.
+        billingDay is re-derived from startDate if startDate changes.
         tenantId and unitId cannot be changed after creation.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -519,6 +551,7 @@ paths:
               unitId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
               billingModel: ARREARS
               startDate: "2026-04-15"
+              rentAmount: 200000
               openingBalance: -540000
       responses:
         '200':
@@ -534,13 +567,13 @@ paths:
 
   /agreements/{id}/moveout:
     patch:
-      tags: [Agreements]
+      tags: [ Agreements ]
       summary: Record move-out and terminate agreement
       description: |
-        Records move-out date, sets status to TERMINATED, marks unit as available.
-        Skips startDate comparison if startDate is null (EXISTING tenant without history).
+        Sets moveOutDate, changes status to TERMINATED, marks unit as available (isAvailable = true).
+        Skips startDate comparison if startDate is null.
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -553,7 +586,7 @@ paths:
               moveOutDate: "2026-06-30"
       responses:
         '200':
-          description: Terminated
+          description: Agreement terminated
           content:
             application/json:
               schema:
@@ -567,10 +600,10 @@ paths:
 
   /payments:
     get:
-      tags: [Payments]
+      tags: [ Payments ]
       summary: List all payments (paginated + search + date filter)
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -586,13 +619,13 @@ paths:
           schema:
             type: string
             format: date
-          description: Payment date range start (inclusive). Must be used with `to`.
+          description: Filter by paymentDate >= from (inclusive). Use with `to`.
         - name: to
           in: query
           schema:
             type: string
             format: date
-          description: Payment date range end (inclusive). Must be used with `from`.
+          description: Filter by paymentDate <= to (inclusive). Use with `from`.
         - name: tenantId
           in: query
           schema:
@@ -614,26 +647,25 @@ paths:
           $ref: '#/components/responses/Unauthorized'
 
     post:
-      tags: [Payments]
+      tags: [ Payments ]
       summary: Record a payment
       description: |
-        Records a cash payment for a specific billing cycle.
+        Records a payment for a specific billing cycle.
 
-        **Period:** Specified as exact cycle dates (`periodStartDate`, `periodEndDate`)
-        matching the agreement's billing cycle. The frontend cycle picker generates
-        these dates based on the agreement's billingDay.
+        **Period dates:** Must match the agreement's billing cycle exactly.
+        The frontend cycle picker generates these based on `billingDay`.
 
-        **Overpayment:** If `amount > rentAmount`, the excess is auto-applied as a
-        ROLLOVER payment to the next cycle. Chains recursively across months.
+        **Overpayment:** If `amount > expectedAmount`, excess auto-creates a ROLLOVER
+        payment for the next cycle. Chains recursively across months.
 
-        **Split payments:** Multiple CASH payments per cycle are allowed.
+        **Split payments:** Multiple payments per cycle allowed. System sums them.
 
-        **Period status** (computed in response):
-        - PAID — amount >= expectedAmount
-        - PARTIAL — 0 < amount < expectedAmount
-        - ROLLOVER — source = ROLLOVER (auto-created)
+        **Period status** (computed, never stored):
+        - PAID — totalPaidForPeriod >= expectedAmount
+        - PARTIAL — 0 < totalPaidForPeriod < expectedAmount
+        - ROLLOVER — source = ROLLOVER (auto-created by system)
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       requestBody:
         required: true
         content:
@@ -641,44 +673,44 @@ paths:
             schema:
               $ref: '#/components/schemas/PaymentRequest'
             examples:
-              full_payment:
-                summary: Full cycle payment (billing_day = 15)
+              full_payment_mid_month:
+                summary: Full payment — billing_day = 15
                 value:
                   agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                   paymentDate: "2026-04-15"
-                  amount: 350000
+                  amount: 180000
                   method: CASH
                   periodStartDate: "2026-04-15"
                   periodEndDate: "2026-05-14"
-                  reference: RCP-001
+                  reference: "40422387417"
+              full_payment_calendar:
+                summary: Full payment — billing_day = 1
+                value:
+                  agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                  paymentDate: "2026-04-01"
+                  amount: 180000
+                  method: CASH
+                  periodStartDate: "2026-04-01"
+                  periodEndDate: "2026-04-30"
               overpayment:
                 summary: Overpayment — covers two cycles
                 value:
                   agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                  paymentDate: "2026-04-15"
-                  amount: 700000
+                  paymentDate: "2026-04-01"
+                  amount: 360000
                   method: CASH
-                  periodStartDate: "2026-04-15"
-                  periodEndDate: "2026-05-14"
+                  periodStartDate: "2026-04-01"
+                  periodEndDate: "2026-04-30"
               partial:
                 summary: Partial payment
                 value:
                   agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                  paymentDate: "2026-04-15"
-                  amount: 200000
-                  method: CASH
-                  periodStartDate: "2026-04-15"
-                  periodEndDate: "2026-05-14"
-                  notes: Balance to follow
-              calendar_month:
-                summary: Calendar month payment (billing_day = 1)
-                value:
-                  agreementId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                   paymentDate: "2026-04-01"
-                  amount: 350000
+                  amount: 100000
                   method: CASH
                   periodStartDate: "2026-04-01"
                   periodEndDate: "2026-04-30"
+                  notes: Balance to follow end of month
       responses:
         '201':
           description: Payment recorded. ROLLOVER auto-created if overpaid.
@@ -693,10 +725,10 @@ paths:
 
   /payments/{id}:
     get:
-      tags: [Payments]
-      summary: Get a payment
+      tags: [ Payments ]
+      summary: Get a single payment
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -715,10 +747,10 @@ paths:
 
   /reports/summary:
     get:
-      tags: [Reports]
+      tags: [ Reports ]
       summary: Dashboard summary statistics
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       responses:
         '200':
           description: Summary stats
@@ -731,21 +763,23 @@ paths:
 
   /reports/payments:
     get:
-      tags: [Reports]
+      tags: [ Reports ]
       summary: Payment report for a date range
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       parameters:
         - name: from
           in: query
           schema:
             type: string
             format: date
+          example: "2026-04-01"
         - name: to
           in: query
           schema:
             type: string
             format: date
+          example: "2026-04-30"
       responses:
         '200':
           description: Payment report
@@ -758,10 +792,10 @@ paths:
 
   /reports/occupancy:
     get:
-      tags: [Reports]
+      tags: [ Reports ]
       summary: Occupancy rate
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       responses:
         '200':
           description: Occupancy report
@@ -769,6 +803,127 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OccupancyReportResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── SETTINGS ──────────────────────────────────────────
+
+  /settings:
+    get:
+      tags: [ Settings ]
+      summary: Get landlord settings
+      description: |
+        Returns the landlord's settings. Auto-creates a row with defaults if none exist yet.
+        Called immediately after login — response stored in frontend settingsStore (Zustand).
+        Used for branding (company name, logo) and receipt generation.
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: Settings returned (or auto-created with defaults)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandlordSettingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags: [ Settings ]
+      summary: Update landlord settings
+      description: |
+        Updates text fields. Logo is updated separately via POST /settings/logo.
+        All fields are optional — only provided fields are updated.
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LandlordSettingsRequest'
+            examples:
+              business_profile:
+                summary: Update business profile
+                value:
+                  companyName: Nahabwe Properties
+                  address: "Kyebando, Nansana, Kampala"
+              receipt_settings:
+                summary: Update receipt settings
+                value:
+                  receiptPrefix: RCP
+                  nextReceiptNo: 1954
+                  receiptNumbering: MANUAL
+                  receiptFooter: Thank you for your business
+                  receiptStyle: FORMAL
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandlordSettingsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /settings/logo:
+    post:
+      tags: [ Settings ]
+      summary: Upload company logo
+      description: |
+        Uploads logo to Cloudinary via fileStorageService.upload(file, "landlord/logo", landlordId).
+        Uses landlordId as public_id so re-uploads overwrite the previous logo.
+        Stores the returned Cloudinary secure_url in landlord_settings.logo_url.
+        Frontend displays logo in sidebar (desktop) and avatar dropdown (mobile).
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [ file ]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file (PNG, JPG, SVG). Max 5MB.
+      responses:
+        '200':
+          description: Logo uploaded. Returns updated settings with new logoUrl.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandlordSettingsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /settings/receipt-number:
+    post:
+      tags: [ Settings ]
+      summary: Get and increment next receipt number
+      description: |
+        Returns the next receipt number as a formatted string (e.g. "RCP-001")
+        and increments next_receipt_no in the database atomically.
+        Called each time a receipt is downloaded — both after recording a payment
+        and when generating a manual receipt.
+        Format: {receiptPrefix}-{nextReceiptNo zero-padded to 3 digits}
+        Example: prefix="RCP", nextReceiptNo=1954 → "RCP-1954"
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: Next receipt number (e.g. "RCP-001")
+          content:
+            application/json:
+              schema:
+                type: string
+                example: RCP-001
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -813,7 +968,7 @@ components:
       in: query
       schema:
         type: string
-        enum: [asc, desc]
+        enum: [ asc, desc ]
         default: desc
 
   responses:
@@ -844,13 +999,14 @@ components:
 
     RegisterRequest:
       type: object
-      required: [name, phoneNumber, password]
+      required: [ name, phoneNumber, password ]
       properties:
         name:
           type: string
+          example: Brian Nahabwe
         phoneNumber:
           type: string
-          example: "0771234567"
+          example: "256774010511"
         email:
           type: string
           format: email
@@ -861,17 +1017,18 @@ components:
 
     LoginRequest:
       type: object
-      required: [username, password]
+      required: [ username, password ]
       properties:
         username:
           type: string
-          description: Phone number or email
+          description: Phone number or email address
+          example: "256774010511"
         password:
           type: string
 
     RefreshRequest:
       type: object
-      required: [refreshToken]
+      required: [ refreshToken ]
       properties:
         refreshToken:
           type: string
@@ -881,12 +1038,16 @@ components:
       properties:
         accessToken:
           type: string
+          description: JWT access token. Expires in 24 hours.
         refreshToken:
           type: string
+          description: JWT refresh token. Expires in 30 days.
         name:
           type: string
+          example: Brian Nahabwe
         phoneNumber:
           type: string
+          example: "256774010511"
         email:
           type: string
           nullable: true
@@ -895,7 +1056,7 @@ components:
 
     TenantRequest:
       type: object
-      required: [name, phone]
+      required: [ name, phone ]
       properties:
         name:
           type: string
@@ -911,9 +1072,8 @@ components:
     TenantResponse:
       type: object
       description: |
-        Tenant enriched with cumulative outstanding balance from active agreement.
-        Balance fields are null if tenant has no active agreement.
-        currentCycleStart/End reflect the billing cycle dates (e.g. Apr 15 – May 14).
+        Tenant enriched with balance data from active agreement.
+        All balance/cycle fields are null if tenant has no active agreement.
       properties:
         id:
           type: string
@@ -934,8 +1094,8 @@ components:
         currentUnit:
           type: string
           nullable: true
-          description: Room number of active unit
-          example: "A3"
+          description: Room number from active agreement
+          example: A3
         monthlyRent:
           type: number
           format: decimal
@@ -945,22 +1105,30 @@ components:
           format: decimal
           nullable: true
           description: |
-            Cumulative outstanding amount across all due billing cycles.
-            0 = fully paid. Positive = owes money. Null = no active agreement.
+            Cumulative outstanding across ALL due cycles.
+            0 = fully paid up. Positive = owes money. Null = no active agreement.
         periodStatus:
           type: string
           nullable: true
-          enum: [PAID, PARTIAL, UNPAID]
+          enum: [ PAID, PARTIAL, UNPAID ]
+          description: Status based on cumulative balance, not just current cycle.
         currentCycleStart:
           type: string
           format: date
           nullable: true
-          description: Start date of current billing cycle (e.g. 2026-04-15)
+          description: Start of current billing cycle. e.g. 2026-04-15
         currentCycleEnd:
           type: string
           format: date
           nullable: true
-          description: End date of current billing cycle (e.g. 2026-05-14)
+          description: End of current billing cycle. e.g. 2026-05-14
+        currentCyclePaid:
+          type: boolean
+          nullable: true
+          description: |
+            True if payments summed for the current cycle period >= rentAmount.
+            Based on period coverage (periodStartDate/periodEndDate), NOT payment recording date.
+            Used by dashboard to compute "paid this month" progress bar.
 
     PagedTenantResponse:
       allOf:
@@ -976,7 +1144,7 @@ components:
 
     RentalUnitRequest:
       type: object
-      required: [roomNumber, rentAmount]
+      required: [ roomNumber, rentAmount ]
       properties:
         roomNumber:
           type: string
@@ -987,6 +1155,7 @@ components:
         rentAmount:
           type: number
           format: decimal
+          example: 350000
         isAvailable:
           type: boolean
           default: true
@@ -1025,27 +1194,25 @@ components:
 
     AgreementStatus:
       type: string
-      enum: [ACTIVE, TERMINATED]
+      enum: [ ACTIVE, TERMINATED ]
 
     TenantType:
       type: string
-      enum: [NEW, EXISTING]
+      enum: [ NEW, EXISTING ]
       description: |
-        NEW = moving in fresh, full ledger from day one.
-        EXISTING = already living there, being onboarded mid-tenancy.
+        NEW = moving in fresh. Full ledger from startDate.
+        EXISTING = onboarded mid-tenancy. Use openingBalance for historical arrears/credit.
 
     BillingModel:
       type: string
-      enum: [ADVANCE, ARREARS]
+      enum: [ ADVANCE, ARREARS ]
       description: |
-        ADVANCE = tenant pays at the START of each billing cycle.
-                  First payment due on move-in day (billingDay).
-        ARREARS  = tenant pays at the END of each billing cycle.
-                   First payment due one full cycle after move-in.
+        ADVANCE = tenant pays at the START of each cycle. Current cycle due immediately.
+        ARREARS  = tenant pays at the END of each cycle. Only completed cycles are due.
 
     RentalAgreementRequest:
       type: object
-      required: [tenantId, unitId]
+      required: [ tenantId, unitId ]
       properties:
         tenantId:
           type: string
@@ -1055,23 +1222,23 @@ components:
           format: uuid
         tenantType:
           $ref: '#/components/schemas/TenantType'
-          description: Defaults to NEW if not provided
+          description: Defaults to NEW
         billingModel:
           $ref: '#/components/schemas/BillingModel'
-          description: Defaults to ADVANCE if not provided
+          description: Defaults to ADVANCE
         startDate:
           type: string
           format: date
           nullable: true
           description: |
-            Move-in date (NEW) or first billing cycle start date (EXISTING).
-            billingDay is derived automatically from this date (day of month, capped at 28).
-            For EXISTING tenants: set to the first cycle you want to track going forward.
+            NEW tenant: move-in date (required).
+            EXISTING tenant: first cycle to track going forward.
+            billingDay derived from this date (day of month, capped at 28).
         rentAmount:
           type: number
           format: decimal
           nullable: true
-          description: Defaults to unit rent if not provided
+          description: Defaults to unit rentAmount if not provided.
         depositAmount:
           type: number
           format: decimal
@@ -1081,20 +1248,18 @@ components:
           format: decimal
           nullable: true
           description: |
-            Only for EXISTING tenants.
-            Positive = paid ahead (credit reduces outstanding).
-            Negative = owes historical arrears (increases outstanding).
-            Set to total unpaid amount before startDate. Leave 0 if up to date.
+            EXISTING tenants only. Ignored for NEW tenants (always 0).
+            Negative = owes arrears before startDate (increases outstanding).
+            Positive = paid ahead before startDate (reduces outstanding).
           example: -540000
 
     MoveOutRequest:
       type: object
-      required: [moveOutDate]
+      required: [ moveOutDate ]
       properties:
         moveOutDate:
           type: string
           format: date
-          example: "2026-06-30"
 
     RentalAgreementResponse:
       type: object
@@ -1134,10 +1299,12 @@ components:
         openingBalance:
           type: number
           format: decimal
-          description: Positive = credit, Negative = arrears. 0 for NEW tenants.
+          description: Positive = credit, Negative = arrears. Always 0 for NEW tenants.
         billingDay:
           type: integer
-          description: Day of month rent is due (1–28). Derived from startDate.
+          minimum: 1
+          maximum: 28
+          description: Day of month rent is due. Derived from startDate, never user input.
           example: 15
         billingModel:
           $ref: '#/components/schemas/BillingModel'
@@ -1159,32 +1326,33 @@ components:
 
     PaymentMethod:
       type: string
-      enum: [CASH]
-      description: MVP supports CASH only.
+      enum: [ CASH ]
+      description: MVP supports CASH only. Mobile money planned for post-MVP.
 
     PaymentSource:
       type: string
-      enum: [CASH, ROLLOVER]
+      enum: [ CASH, ROLLOVER ]
       description: |
         CASH = manually recorded by landlord.
-        ROLLOVER = auto-created from previous cycle overpayment.
+        ROLLOVER = auto-created by system from previous cycle overpayment.
 
     PeriodStatus:
       type: string
-      enum: [PAID, PARTIAL, ROLLOVER]
-      description: Computed dynamically. Never stored.
+      enum: [ PAID, PARTIAL, ROLLOVER ]
+      description: Computed dynamically from payment sums. Never stored.
 
     PaymentRequest:
       type: object
-      required: [agreementId, paymentDate, amount, method, periodStartDate, periodEndDate]
+      required: [ agreementId, paymentDate, amount, method, periodStartDate, periodEndDate ]
       properties:
         agreementId:
           type: string
           format: uuid
-          description: Must be ACTIVE. Tenant and unit derived automatically.
+          description: Must be an ACTIVE agreement. tenantId and unitId derived automatically.
         paymentDate:
           type: string
           format: date
+          description: Date payment was physically received.
         amount:
           type: number
           format: decimal
@@ -1193,20 +1361,17 @@ components:
         periodStartDate:
           type: string
           format: date
-          description: |
-            Start of the billing cycle this payment covers.
-            Generated by the frontend cycle picker based on agreement billingDay.
+          description: Start of billing cycle this payment covers. Generated by frontend cycle picker.
           example: "2026-04-15"
         periodEndDate:
           type: string
           format: date
-          description: |
-            End of the billing cycle this payment covers.
-            One day before the next cycle start.
+          description: End of billing cycle. One day before next cycle start.
           example: "2026-05-14"
         reference:
           type: string
           nullable: true
+          description: Mobile money transaction ID or other reference.
         notes:
           type: string
           nullable: true
@@ -1249,7 +1414,7 @@ components:
         expectedAmount:
           type: number
           format: decimal
-          description: Rent due for this cycle (copied from agreement at time of payment)
+          description: rentAmount from agreement at time of payment.
         overpayment:
           type: number
           format: decimal
@@ -1298,6 +1463,7 @@ components:
         totalRevenueAllTime:
           type: number
           format: decimal
+          description: Sum of all payment amounts ever recorded.
 
     PaymentReportResponse:
       type: object
@@ -1326,7 +1492,87 @@ components:
         occupancyRate:
           type: number
           format: decimal
-          description: Percentage (0.00–100.00)
+          description: Percentage 0.00–100.00
+
+    # ── Settings ────────────────────────────────────────
+
+    LandlordSettingsRequest:
+      type: object
+      description: All fields optional. Only provided fields are updated.
+      properties:
+        companyName:
+          type: string
+          nullable: true
+          description: Shown in sidebar and mobile header instead of "RentFlow".
+          example: Nahabwe Properties
+        address:
+          type: string
+          nullable: true
+          description: Shown on receipts.
+          example: "Kyebando, Nansana, Kampala"
+        receiptPrefix:
+          type: string
+          nullable: true
+          maxLength: 10
+          description: Prefix for receipt numbers. e.g. RCP → RCP-001
+          example: RCP
+        nextReceiptNo:
+          type: integer
+          nullable: true
+          description: Starting number for receipts. Useful for MANUAL mode to match physical book.
+          example: 1954
+        receiptNumbering:
+          type: string
+          nullable: true
+          enum: [ AUTO, MANUAL ]
+          description: |
+            AUTO = increments from 1 automatically.
+            MANUAL = landlord sets starting number to match physical receipt book.
+        receiptFooter:
+          type: string
+          nullable: true
+          description: Message shown at bottom of every receipt.
+          example: Thank you for your business
+        receiptStyle:
+          type: string
+          nullable: true
+          enum: [ DIGITAL, FORMAL ]
+          description: |
+            DIGITAL = clean branded receipt with dark green header.
+            FORMAL = matches physical receipt book style with dotted lines.
+
+    LandlordSettingsResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        companyName:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        logoUrl:
+          type: string
+          nullable: true
+          description: Cloudinary secure_url. Used in sidebar, header, and receipts.
+        receiptPrefix:
+          type: string
+          example: RCP
+        nextReceiptNo:
+          type: integer
+          example: 7
+          description: The NEXT number that will be used. Incremented after each receipt download.
+        receiptNumbering:
+          type: string
+          enum: [ AUTO, MANUAL ]
+        receiptFooter:
+          type: string
+          nullable: true
+        receiptStyle:
+          type: string
+          enum: [ DIGITAL, FORMAL ]
 
     # ── Shared ──────────────────────────────────────────
 

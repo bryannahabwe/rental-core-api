@@ -8,4 +8,5 @@ public record LandlordSettingsRequest(
         String receiptNumbering,
         String receiptFooter,
         String receiptStyle
-) {}
+) {
+}

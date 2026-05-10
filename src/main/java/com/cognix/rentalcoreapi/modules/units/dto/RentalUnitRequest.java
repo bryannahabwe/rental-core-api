@@ -18,4 +18,5 @@ public record RentalUnitRequest(
         BigDecimal rentAmount,
 
         boolean isAvailable
-) {}
+) {
+}

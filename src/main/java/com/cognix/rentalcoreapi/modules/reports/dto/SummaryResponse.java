@@ -10,4 +10,5 @@ public record SummaryResponse(
         long activeAgreements,
         long terminatedAgreements,
         BigDecimal totalRevenueAllTime
-) {}
+) {
+}

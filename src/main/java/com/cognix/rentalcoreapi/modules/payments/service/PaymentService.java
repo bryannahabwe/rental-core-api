@@ -98,7 +98,7 @@ public class PaymentService {
             createRolloverPayment(
                     agreement, overpayment,
                     request.periodEndDate().plusDays(1),
-                    landlordId);
+                    landlordId, request.paymentDate());
         }
 
         return PaymentResponse.from(saved);
@@ -106,7 +106,7 @@ public class PaymentService {
 
     private void createRolloverPayment(
             RentalAgreement agreement, BigDecimal rolloverAmount,
-            LocalDate nextCycleStart, UUID landlordId) {
+            LocalDate nextCycleStart, UUID landlordId, LocalDate originalPaymentDate) {
 
         int billingDay = agreement.getBillingDay();
         LocalDate nextCycleEnd = BillingCycleUtils.cycleEnd(nextCycleStart, billingDay);
@@ -127,7 +127,7 @@ public class PaymentService {
                 .tenant(agreement.getTenant())
                 .unit(agreement.getUnit())
                 .agreement(agreement)
-                .paymentDate(nextCycleStart)
+                .paymentDate(originalPaymentDate)
                 .amount(actualRollover)
                 .method(PaymentMethod.CASH)
                 .periodStartDate(nextCycleStart)
@@ -143,7 +143,7 @@ public class PaymentService {
 
         if (remainingOverpayment.compareTo(BigDecimal.ZERO) > 0) {
             createRolloverPayment(agreement, remainingOverpayment,
-                    nextCycleEnd.plusDays(1), landlordId);
+                    nextCycleEnd.plusDays(1), landlordId, originalPaymentDate);
         }
     }
 }

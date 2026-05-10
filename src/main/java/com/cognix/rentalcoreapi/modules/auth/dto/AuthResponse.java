@@ -6,4 +6,5 @@ public record AuthResponse(
         String name,
         String phoneNumber,
         String email
-) {}
+) {
+}

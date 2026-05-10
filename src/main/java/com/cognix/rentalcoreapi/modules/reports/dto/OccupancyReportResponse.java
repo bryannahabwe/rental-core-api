@@ -7,4 +7,5 @@ public record OccupancyReportResponse(
         long occupiedUnits,
         long availableUnits,
         BigDecimal occupancyRate
-) {}
+) {
+}

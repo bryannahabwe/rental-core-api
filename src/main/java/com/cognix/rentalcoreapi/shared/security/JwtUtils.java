@@ -9,7 +9,8 @@ import java.util.UUID;
 @Slf4j
 public class JwtUtils {
 
-    private JwtUtils() {}
+    private JwtUtils() {
+    }
 
     public static UUID getCurrentLandlordId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();

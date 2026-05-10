@@ -131,7 +131,7 @@ public class TenantService {
                 .multiply(BigDecimal.valueOf(cyclesElapsed));
 
         // Apply opening balance
-        BigDecimal openingCredit  = agreement.getOpeningBalance().max(BigDecimal.ZERO);
+        BigDecimal openingCredit = agreement.getOpeningBalance().max(BigDecimal.ZERO);
         BigDecimal openingArrears = agreement.getOpeningBalance().min(BigDecimal.ZERO).abs();
         totalEverOwed = totalEverOwed.subtract(openingCredit).add(openingArrears);
 
@@ -144,7 +144,7 @@ public class TenantService {
 
         // Current cycle dates
         LocalDate cycleStart = BillingCycleUtils.currentCycleStart(agreement);
-        LocalDate cycleEnd   = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());
+        LocalDate cycleEnd = BillingCycleUtils.cycleEnd(cycleStart, agreement.getBillingDay());
 
         // ── Current cycle paid ──────────────────────────────
         // Sum payments whose period covers the current cycle specifically

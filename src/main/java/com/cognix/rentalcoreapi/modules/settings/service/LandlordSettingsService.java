@@ -43,13 +43,13 @@ public class LandlordSettingsService {
                 .findByLandlordId(landlordId)
                 .orElseGet(() -> createDefaults(landlordId));
 
-        if (request.companyName()    != null) settings.setCompanyName(request.companyName());
-        if (request.address()        != null) settings.setAddress(request.address());
-        if (request.receiptPrefix()  != null) settings.setReceiptPrefix(request.receiptPrefix());
-        if (request.nextReceiptNo()  != null) settings.setNextReceiptNo(request.nextReceiptNo());
+        if (request.companyName() != null) settings.setCompanyName(request.companyName());
+        if (request.address() != null) settings.setAddress(request.address());
+        if (request.receiptPrefix() != null) settings.setReceiptPrefix(request.receiptPrefix());
+        if (request.nextReceiptNo() != null) settings.setNextReceiptNo(request.nextReceiptNo());
         if (request.receiptNumbering() != null) settings.setReceiptNumbering(request.receiptNumbering());
-        if (request.receiptFooter()  != null) settings.setReceiptFooter(request.receiptFooter());
-        if (request.receiptStyle()   != null) settings.setReceiptStyle(request.receiptStyle());
+        if (request.receiptFooter() != null) settings.setReceiptFooter(request.receiptFooter());
+        if (request.receiptStyle() != null) settings.setReceiptStyle(request.receiptStyle());
 
         return LandlordSettingsResponse.from(settingsRepository.save(settings));
     }

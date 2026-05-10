@@ -1,7 +1,9 @@
 package com.cognix.rentalcoreapi.modules.auth.model;
 
 import com.cognix.rentalcoreapi.shared.entity.BaseEntity;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;

@@ -29,11 +29,11 @@ public class ReportService {
     public SummaryResponse getSummary() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        long totalUnits        = unitRepository.countByLandlordId(landlordId);
-        long occupiedUnits     = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false);
-        long availableUnits    = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true);
-        long totalTenants      = tenantRepository.countByLandlordId(landlordId);
-        long activeAgreements  = agreementRepository.countByLandlordIdAndStatus(
+        long totalUnits = unitRepository.countByLandlordId(landlordId);
+        long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false);
+        long availableUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true);
+        long totalTenants = tenantRepository.countByLandlordId(landlordId);
+        long activeAgreements = agreementRepository.countByLandlordIdAndStatus(
                 landlordId, AgreementStatus.ACTIVE);
         long terminatedAgreements = agreementRepository.countByLandlordIdAndStatus(
                 landlordId, AgreementStatus.TERMINATED);
@@ -81,8 +81,8 @@ public class ReportService {
     public OccupancyReportResponse getOccupancyReport() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        long totalUnits     = unitRepository.countByLandlordId(landlordId);
-        long occupiedUnits  = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false);
+        long totalUnits = unitRepository.countByLandlordId(landlordId);
+        long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false);
         long availableUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true);
 
         BigDecimal occupancyRate = totalUnits > 0
