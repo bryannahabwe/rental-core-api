@@ -9,4 +9,5 @@ public record CycleStatusResponse(
         BigDecimal expectedAmount,
         BigDecimal paidAmount,
         String status  // PAID / PARTIAL / UNPAID
-) {}
+) {
+}

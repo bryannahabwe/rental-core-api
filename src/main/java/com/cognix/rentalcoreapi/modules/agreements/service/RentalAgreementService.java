@@ -17,7 +17,6 @@ import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
-import org.apache.coyote.BadRequestException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -198,7 +197,7 @@ public class RentalAgreementService {
         // Current due cycle
         LocalDate lastCycleStart = BillingCycleUtils.currentCycleStart(agreement);
 
-        // If no cycle is due yet (ARREARS tenant, first cycle not complete)
+        // If no cycle is due yet (ARREARS tenant, first cycle not completes)
         // still show the current in-progress cycle so landlord can record early payment
         if (lastCycleStart == null) {
             lastCycleStart = cycleStart;

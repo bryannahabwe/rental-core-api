@@ -10,10 +10,10 @@ public class BillingCycleUtils {
 
     /**
      * Compute the current cycle start date for an agreement.
-     *
+     * <p>
      * ADVANCE: current in-progress cycle (e.g. today Apr 25, billingDay 10 → Apr 10)
      * ARREARS: last completed cycle (e.g. today May 10, billingDay 15 → Mar 15)
-     *          because payment is collected at END of cycle — Mar 15–Apr 14 is due
+     * because payment is collected at END of cycle — Mar 15–Apr 14 is due
      */
     public static LocalDate currentCycleStart(RentalAgreement agreement) {
         if (agreement.getStartDate() == null) return null;
@@ -67,10 +67,10 @@ public class BillingCycleUtils {
 
     /**
      * Count how many billing cycles have elapsed and are DUE.
-     *
+     * <p>
      * ADVANCE: current in-progress cycle counts immediately (paid at start)
      * ARREARS: only completed cycles count (paid at end)
-     *
+     * <p>
      * currentCycleStart() already handles the ADVANCE/ARREARS distinction,
      * so elapsed is always: months between firstCycleStart and currentCycleStart + 1
      */

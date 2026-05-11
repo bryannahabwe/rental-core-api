@@ -131,7 +131,7 @@ public class TenantService {
                 .multiply(BigDecimal.valueOf(cyclesElapsed));
 
         // Apply opening balance
-        BigDecimal openingCredit  = agreement.getOpeningBalance().max(BigDecimal.ZERO);
+        BigDecimal openingCredit = agreement.getOpeningBalance().max(BigDecimal.ZERO);
         BigDecimal openingArrears = agreement.getOpeningBalance().min(BigDecimal.ZERO).abs();
         totalEverOwed = totalEverOwed.subtract(openingCredit).add(openingArrears);
 
@@ -173,6 +173,22 @@ public class TenantService {
 
         boolean currentCyclePaid = currentCyclePaidAmount
                 .compareTo(agreement.getRentAmount()) >= 0;
+
+        if (currentCyclePaid) {
+            LocalDate nextStart = BillingCycleUtils.nextCycleStart(cycleStart, agreement.getBillingDay());
+            LocalDate nextEnd = BillingCycleUtils.cycleEnd(nextStart, agreement.getBillingDay());
+
+            BigDecimal nextCyclePaidAmount = paymentRepository.sumByAgreementAndCycle(
+                    agreement.getId(), nextStart, nextEnd);
+
+            // Use next cycle for the "current" display if it has been paid
+            if (nextCyclePaidAmount.compareTo(BigDecimal.ZERO) > 0) {
+                cycleStart = nextStart;
+                cycleEnd = nextEnd;
+                currentCyclePaid = nextCyclePaidAmount
+                        .compareTo(agreement.getRentAmount()) >= 0;
+            }
+        }
 
         // Period status
         String periodStatus;
