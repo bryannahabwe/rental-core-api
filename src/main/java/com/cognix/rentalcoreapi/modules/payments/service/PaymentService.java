@@ -56,6 +56,11 @@ public class PaymentService {
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
     }
 
+    // Beyond this many cycles ahead, stop hunting for an open slot for
+    // leftover rollover credit — guards against runaway recursion if a
+    // tenant has an implausibly long run of pre-existing rollover rows.
+    private static final int MAX_ROLLOVER_LOOKAHEAD_CYCLES = 120;
+
     @Transactional
     public PaymentResponse recordPayment(PaymentRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
@@ -71,8 +76,20 @@ public class PaymentService {
 
         BigDecimal expectedAmount = agreement.getRentAmount();
         BigDecimal paidAmount = request.amount();
-        BigDecimal overpayment = paidAmount.subtract(expectedAmount)
-                .max(BigDecimal.ZERO);
+
+        // A payment for a period before cycle-tracking begins isn't for any
+        // billing cycle at all — it's the tenant paying down pre-existing
+        // arrears (the same balance the "Opening Balance" field represents).
+        // Apply it there directly instead of running it through the normal
+        // cycle/overpayment/rollover flow, which would otherwise either get
+        // silently excluded from balance totals (correct, but arrears never
+        // actually clear) or double-count it against unrelated later cycles.
+        boolean appliesToOpeningArrears = request.periodStartDate()
+                .isBefore(BillingCycleUtils.effectiveStartDate(agreement));
+
+        BigDecimal overpayment = appliesToOpeningArrears
+                ? BigDecimal.ZERO
+                : paidAmount.subtract(expectedAmount).max(BigDecimal.ZERO);
 
         Payment payment = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
@@ -91,14 +108,18 @@ public class PaymentService {
                 .notes(request.notes())
                 .build();
 
-        Payment saved = paymentRepository.save(payment);
+        // saveAndFlush (not save) so @CreationTimestamp's INSERT-time
+        // population actually happens before this response is built.
+        Payment saved = paymentRepository.saveAndFlush(payment);
 
-        // Auto-create rollover for next cycle if overpaid
-        if (overpayment.compareTo(BigDecimal.ZERO) > 0) {
+        if (appliesToOpeningArrears) {
+            agreement.setOpeningBalance(agreement.getOpeningBalance().add(paidAmount));
+            agreementRepository.save(agreement);
+        } else if (overpayment.compareTo(BigDecimal.ZERO) > 0) {
             createRolloverPayment(
                     agreement, overpayment,
                     request.periodEndDate().plusDays(1),
-                    landlordId, request.paymentDate());
+                    landlordId, request.paymentDate(), 0);
         }
 
         return PaymentResponse.from(saved);
@@ -106,16 +127,29 @@ public class PaymentService {
 
     private void createRolloverPayment(
             RentalAgreement agreement, BigDecimal rolloverAmount,
-            LocalDate nextCycleStart, UUID landlordId, LocalDate originalPaymentDate) {
+            LocalDate nextCycleStart, UUID landlordId, LocalDate originalPaymentDate,
+            int depth) {
+
+        if (rolloverAmount.compareTo(BigDecimal.ZERO) <= 0
+                || depth >= MAX_ROLLOVER_LOOKAHEAD_CYCLES) {
+            return;
+        }
 
         int billingDay = agreement.getBillingDay();
         LocalDate nextCycleEnd = BillingCycleUtils.cycleEnd(nextCycleStart, billingDay);
 
-        // Skip if rollover already exists for this cycle
+        // If a rollover already exists for this cycle, it's already fully
+        // credited (rollovers are always created for the full rent amount
+        // unless they're the last one in a chain) — move on to the next
+        // cycle instead of silently dropping this amount.
         boolean exists = paymentRepository
                 .existsByAgreementIdAndPeriodStartDateAndSource(
                         agreement.getId(), nextCycleStart, PaymentSource.ROLLOVER);
-        if (exists) return;
+        if (exists) {
+            createRolloverPayment(agreement, rolloverAmount,
+                    nextCycleEnd.plusDays(1), landlordId, originalPaymentDate, depth + 1);
+            return;
+        }
 
         BigDecimal expectedAmount = agreement.getRentAmount();
         BigDecimal actualRollover = rolloverAmount.min(expectedAmount);
@@ -143,7 +177,7 @@ public class PaymentService {
 
         if (remainingOverpayment.compareTo(BigDecimal.ZERO) > 0) {
             createRolloverPayment(agreement, remainingOverpayment,
-                    nextCycleEnd.plusDays(1), landlordId, originalPaymentDate);
+                    nextCycleEnd.plusDays(1), landlordId, originalPaymentDate, depth + 1);
         }
     }
 }

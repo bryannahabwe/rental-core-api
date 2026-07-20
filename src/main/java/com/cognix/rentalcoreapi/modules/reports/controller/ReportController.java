@@ -1,5 +1,6 @@
 package com.cognix.rentalcoreapi.modules.reports.controller;
 
+import com.cognix.rentalcoreapi.modules.reports.dto.MonthlyCollectionResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.OccupancyReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.PaymentReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.SummaryResponse;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/reports")
@@ -33,6 +35,15 @@ public class ReportController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ResponseEntity.ok(reportService.getPaymentReport(from, to));
+    }
+
+    @GetMapping("/payments/monthly")
+    public ResponseEntity<List<MonthlyCollectionResponse>> getMonthlyCollection(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(reportService.getMonthlyCollection(from, to));
     }
 
     @GetMapping("/occupancy")

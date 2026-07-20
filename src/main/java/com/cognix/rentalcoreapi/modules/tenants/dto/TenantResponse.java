@@ -18,6 +18,8 @@ public record TenantResponse(
         BigDecimal monthlyRent,
         BigDecimal currentBalance,
         BigDecimal openingArrears,
+        BigDecimal totalEverOwed,
+        BigDecimal totalEverPaid,
         String periodStatus,
         LocalDate currentCycleStart,
         LocalDate currentCycleEnd,
@@ -27,7 +29,7 @@ public record TenantResponse(
         return new TenantResponse(
                 tenant.getId(), tenant.getName(), tenant.getPhone(),
                 tenant.getEmail(), tenant.getAddress(), tenant.getCreatedAt(),
-                null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -36,6 +38,8 @@ public record TenantResponse(
             BigDecimal monthlyRent,
             BigDecimal currentBalance,
             BigDecimal openingArrears,
+            BigDecimal totalEverOwed,
+            BigDecimal totalEverPaid,
             String periodStatus,
             LocalDate currentCycleStart,
             LocalDate currentCycleEnd,
@@ -45,6 +49,7 @@ public record TenantResponse(
                 this.id, this.name, this.phone,
                 this.email, this.address, this.createdAt,
                 currentUnit, monthlyRent, currentBalance, openingArrears,
+                totalEverOwed, totalEverPaid,
                 periodStatus, currentCycleStart, currentCycleEnd,
                 currentCyclePaid
         );

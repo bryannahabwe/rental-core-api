@@ -56,7 +56,9 @@ public class RentalUnitService {
                 .isAvailable(request.isAvailable())
                 .build();
 
-        return RentalUnitResponse.from(rentalUnitRepository.save(unit));
+        // saveAndFlush (not save) so @CreationTimestamp's INSERT-time
+        // population actually happens before this response is built.
+        return RentalUnitResponse.from(rentalUnitRepository.saveAndFlush(unit));
     }
 
     public RentalUnitResponse updateUnit(UUID id, RentalUnitRequest request) {

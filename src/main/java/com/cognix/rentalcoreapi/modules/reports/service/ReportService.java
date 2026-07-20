@@ -3,6 +3,7 @@ package com.cognix.rentalcoreapi.modules.reports.service;
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.reports.dto.MonthlyCollectionResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.OccupancyReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.PaymentReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.SummaryResponse;
@@ -15,6 +16,10 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.format.TextStyle;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -76,6 +81,51 @@ public class ReportService {
                 landlordId, from, to);
 
         return new PaymentReportResponse(from, to, totalPayments, totalAmount);
+    }
+
+    /**
+     * Month-by-month collection totals for [from, to] — a single aggregate
+     * (like getPaymentReport) isn't useful as a bar chart, there's nothing
+     * to compare it against. Buckets are by paymentDate (cash actually
+     * received in that calendar month), clamped to the requested range on
+     * the first/last (possibly partial) month.
+     */
+    public List<MonthlyCollectionResponse> getMonthlyCollection(LocalDate from, LocalDate to) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
+
+        if (from == null) {
+            from = LocalDate.now().minusMonths(5).withDayOfMonth(1);
+        }
+        if (to == null) {
+            to = LocalDate.now();
+        }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException(
+                    "From date cannot be after to date");
+        }
+
+        List<MonthlyCollectionResponse> months = new ArrayList<>();
+        LocalDate cursor = from.withDayOfMonth(1);
+
+        while (!cursor.isAfter(to)) {
+            LocalDate bucketStart = cursor.isBefore(from) ? from : cursor;
+            LocalDate monthEnd = cursor.withDayOfMonth(cursor.lengthOfMonth());
+            LocalDate bucketEnd = monthEnd.isAfter(to) ? to : monthEnd;
+
+            long totalPayments = paymentRepository.countByLandlordIdAndPaymentDateBetween(
+                    landlordId, bucketStart, bucketEnd);
+            BigDecimal totalAmount = paymentRepository.sumAmountByLandlordIdAndDateRange(
+                    landlordId, bucketStart, bucketEnd);
+
+            String label = cursor.getMonth().getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+                    + " " + cursor.getYear();
+
+            months.add(new MonthlyCollectionResponse(label, cursor, totalPayments, totalAmount));
+
+            cursor = cursor.plusMonths(1);
+        }
+
+        return months;
     }
 
     public OccupancyReportResponse getOccupancyReport() {

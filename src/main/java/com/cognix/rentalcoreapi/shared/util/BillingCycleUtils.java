@@ -75,18 +75,24 @@ public class BillingCycleUtils {
      * so elapsed is always: months between firstCycleStart and currentCycleStart + 1
      */
     public static long cyclesElapsed(RentalAgreement agreement) {
-        if (agreement.getStartDate() == null) {
-            return cyclesElapsedFromDate(
-                    agreement.getCreatedAt().toLocalDate(),
-                    agreement.getBillingDay(),
-                    agreement.getBillingModel()
-            );
-        }
         return cyclesElapsedFromDate(
-                agreement.getStartDate(),
+                effectiveStartDate(agreement),
                 agreement.getBillingDay(),
                 agreement.getBillingModel()
         );
+    }
+
+    /**
+     * The date cycle-tracking effectively begins for an agreement — its
+     * explicit startDate, or the agreement's own createdAt if none was set.
+     * Shared by every computation that needs to know which payments/cycles
+     * count as "tracked" (cycle counting, balance totals, cycle generation),
+     * so they can't drift apart on which agreements they consider started.
+     */
+    public static LocalDate effectiveStartDate(RentalAgreement agreement) {
+        return agreement.getStartDate() != null
+                ? agreement.getStartDate()
+                : agreement.getCreatedAt().toLocalDate();
     }
 
     private static long cyclesElapsedFromDate(
@@ -138,7 +144,13 @@ public class BillingCycleUtils {
         return Math.max(0, months);
     }
 
-    private static RentalAgreement buildTemp(
+    /**
+     * A minimal, unsaved RentalAgreement carrying just enough fields to run
+     * cycle math against an explicit start date — used wherever an
+     * agreement's own startDate is null and effectiveStartDate() (createdAt)
+     * must stand in for it instead.
+     */
+    public static RentalAgreement buildTemp(
             LocalDate fromDate, int billingDay, BillingModel model) {
         RentalAgreement temp = new RentalAgreement();
         temp.setStartDate(fromDate);

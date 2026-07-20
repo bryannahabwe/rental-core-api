@@ -119,7 +119,9 @@ public class RentalAgreementService {
         unit.setAvailable(false);
         unitRepository.save(unit);
 
-        return RentalAgreementResponse.from(agreementRepository.save(agreement));
+        // saveAndFlush (not save) so @CreationTimestamp's INSERT-time
+        // population actually happens before this response is built.
+        return RentalAgreementResponse.from(agreementRepository.saveAndFlush(agreement));
     }
 
     @Transactional
@@ -185,17 +187,30 @@ public class RentalAgreementService {
                 .findByIdAndLandlordId(agreementId, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
 
-        if (agreement.getStartDate() == null) {
-            return List.of();
-        }
+        return computeCycleStatuses(agreement);
+    }
 
+    /**
+     * Shared cycle-by-cycle breakdown, also used by TenantService to build
+     * the tenant ledger — single source of truth for per-cycle expected/paid,
+     * so the ledger table and the cycle picker never disagree.
+     */
+    public List<CycleStatusResponse> computeCycleStatuses(RentalAgreement agreement) {
         List<CycleStatusResponse> cycles = new ArrayList<>();
 
-        LocalDate cycleStart = agreement.getStartDate();
-        LocalDate today = LocalDate.now();
+        LocalDate cycleStart = BillingCycleUtils.effectiveStartDate(agreement);
+
+        // currentCycleStart() only reads startDate/billingDay/billingModel off
+        // the agreement — substitute a temp one when startDate itself is null
+        // so this falls back to createdAt exactly like cyclesElapsed() does,
+        // instead of silently returning no cycles at all for such agreements.
+        RentalAgreement cycleAgreement = agreement.getStartDate() != null
+                ? agreement
+                : BillingCycleUtils.buildTemp(
+                        cycleStart, agreement.getBillingDay(), agreement.getBillingModel());
 
         // Current due cycle
-        LocalDate lastCycleStart = BillingCycleUtils.currentCycleStart(agreement);
+        LocalDate lastCycleStart = BillingCycleUtils.currentCycleStart(cycleAgreement);
 
         // If no cycle is due yet (ARREARS tenant, first cycle not completes)
         // still show the current in-progress cycle so landlord can record early payment
@@ -214,7 +229,7 @@ public class RentalAgreementService {
                     cycleStart, agreement.getBillingDay());
 
             BigDecimal paidAmount = paymentRepository.sumByAgreementAndCycle(
-                    agreementId, cycleStart, cycleEnd);
+                    agreement.getId(), cycleStart, cycleEnd);
 
             BigDecimal expectedAmount = agreement.getRentAmount();
 

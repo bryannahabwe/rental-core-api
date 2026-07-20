@@ -26,6 +26,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     Optional<Payment> findByIdAndLandlordId(UUID id, UUID landlordId);
 
+    List<Payment> findAllByAgreementIdOrderByPaymentDateAscCreatedAtAsc(UUID agreementId);
+
     List<Payment> findAllByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
 
@@ -40,6 +42,31 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
             "WHERE p.agreement.id = :agreementId")
     BigDecimal sumAllByAgreement(@Param("agreementId") UUID agreementId);
+
+    // ── Same, but excludes payments recorded for a period before the
+    // agreement's tracked cycle range starts. A payment dated/period-tagged
+    // earlier than that (e.g. carried over from data entry, a prior
+    // arrangement, or an import) isn't counted as satisfying a cycle
+    // cyclesElapsed() ever counted as owed — so it must not be allowed to
+    // silently cancel out arrears on a *later*, actually-due cycle. ──
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
+            "WHERE p.agreement.id = :agreementId AND p.periodStartDate >= :cutoff")
+    BigDecimal sumByAgreementFromDate(
+            @Param("agreementId") UUID agreementId,
+            @Param("cutoff") LocalDate cutoff);
+
+    // ── Overpayment recorded on CASH payments that seeded a ROLLOVER chain.
+    // A CASH payment keeps its full amount (incl. the excess) for the audit
+    // trail, while that same excess is *also* recorded on the ROLLOVER rows
+    // it generated — so sumAllByAgreement() double-counts it unless this is
+    // subtracted back out. ──
+    @Query("SELECT COALESCE(SUM(p.overpayment), 0) FROM Payment p " +
+            "WHERE p.agreement.id = :agreementId AND p.source = :source " +
+            "AND p.periodStartDate >= :cutoff")
+    BigDecimal sumOverpaymentByAgreementAndSourceFromDate(
+            @Param("agreementId") UUID agreementId,
+            @Param("source") PaymentSource source,
+            @Param("cutoff") LocalDate cutoff);
 
     // ── Reports ─────────────────────────────────────────────
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +

@@ -1,5 +1,7 @@
 package com.cognix.rentalcoreapi.modules.tenants.controller;
 
+import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
+import com.cognix.rentalcoreapi.modules.tenants.dto.TenantLedgerResponse;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantRequest;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantResponse;
 import com.cognix.rentalcoreapi.modules.tenants.service.TenantService;
@@ -41,6 +43,21 @@ public class TenantController {
     @GetMapping("/{id}")
     public ResponseEntity<TenantResponse> getTenant(@PathVariable UUID id) {
         return ResponseEntity.ok(tenantService.getTenant(id));
+    }
+
+    @GetMapping("/{id}/ledger")
+    public ResponseEntity<TenantLedgerResponse> getTenantLedger(@PathVariable UUID id) {
+        return ResponseEntity.ok(tenantService.getTenantLedger(id));
+    }
+
+    @GetMapping("/{id}/transactions")
+    public ResponseEntity<PagedResponse<PaymentResponse>> getTenantTransactions(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size) {
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("paymentDate").descending());
+        return ResponseEntity.ok(tenantService.getTenantTransactions(id, pageable));
     }
 
     @PostMapping
