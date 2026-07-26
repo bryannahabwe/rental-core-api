@@ -5,8 +5,12 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 public record RentalUnitRequest(
+
+        @NotNull(message = "Property is required")
+        UUID propertyId,
 
         @NotBlank(message = "Room number is required")
         String roomNumber,

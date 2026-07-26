@@ -12,6 +12,8 @@ import java.util.UUID;
 
 public record RentalAgreementResponse(
         UUID id,
+        UUID propertyId,
+        String propertyName,
         UUID tenantId,
         String tenantName,
         UUID unitId,
@@ -30,6 +32,8 @@ public record RentalAgreementResponse(
     public static RentalAgreementResponse from(RentalAgreement a) {
         return new RentalAgreementResponse(
                 a.getId(),
+                a.getProperty() != null ? a.getProperty().getId() : null,
+                a.getProperty() != null ? a.getProperty().getName() : null,
                 a.getTenant().getId(),
                 a.getTenant().getName(),
                 a.getUnit().getId(),

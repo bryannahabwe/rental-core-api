@@ -11,6 +11,8 @@ import java.util.UUID;
 
 public record PaymentResponse(
         UUID id,
+        UUID propertyId,
+        String propertyName,
         UUID agreementId,
         UUID tenantId,
         String tenantName,
@@ -32,6 +34,8 @@ public record PaymentResponse(
     public static PaymentResponse from(Payment p) {
         return new PaymentResponse(
                 p.getId(),
+                p.getProperty() != null ? p.getProperty().getId() : null,
+                p.getProperty() != null ? p.getProperty().getName() : null,
                 p.getAgreement().getId(),
                 p.getTenant().getId(),
                 p.getTenant().getName(),

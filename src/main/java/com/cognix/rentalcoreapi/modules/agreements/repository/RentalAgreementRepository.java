@@ -19,29 +19,37 @@ public interface RentalAgreementRepository extends JpaRepository<RentalAgreement
 
     boolean existsByUnitIdAndStatus(UUID unitId, AgreementStatus status);
 
-    long countByLandlordId(UUID landlordId);
-
-    long countByLandlordIdAndStatus(UUID landlordId, AgreementStatus status);
+    // ── Reports — property filter is optional (:propertyId IS NULL → all) ──
+    @Query("SELECT COUNT(a) FROM RentalAgreement a WHERE a.landlord.id = :landlordId AND " +
+            "a.status = :status AND (:propertyId IS NULL OR a.property.id = :propertyId)")
+    long countByLandlordIdAndStatus(
+            @Param("landlordId") UUID landlordId,
+            @Param("status") AgreementStatus status,
+            @Param("propertyId") UUID propertyId);
 
     Optional<RentalAgreement> findFirstByTenantIdAndLandlordIdAndStatus(
             UUID tenantId, UUID landlordId, AgreementStatus status);
 
     @Query("SELECT a FROM RentalAgreement a WHERE a.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR a.property.id = :propertyId) AND " +
             "(:search IS NULL OR LOWER(a.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(a.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
     Page<RentalAgreement> findAllByLandlordIdWithSearch(
             @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
             @Param("search") String search,
             Pageable pageable
     );
 
     @Query("SELECT a FROM RentalAgreement a WHERE a.landlord.id = :landlordId AND " +
             "a.status = :status AND " +
+            "(:propertyId IS NULL OR a.property.id = :propertyId) AND " +
             "(:search IS NULL OR LOWER(a.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(a.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
     Page<RentalAgreement> findAllByLandlordIdWithStatusAndSearch(
             @Param("landlordId") UUID landlordId,
             @Param("status") AgreementStatus status,
+            @Param("propertyId") UUID propertyId,
             @Param("search") String search,
             Pageable pageable
     );

@@ -2,6 +2,9 @@ package com.cognix.rentalcoreapi.modules.payments.service;
 
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
+import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.payments.dto.PaymentRequest;
@@ -12,6 +15,7 @@ import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
 import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -30,20 +34,23 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final RentalAgreementRepository agreementRepository;
     private final UserRepository userRepository;
+    private final PropertyAccessGuard propertyAccessGuard;
+    private final AuditWriter auditWriter;
 
     public PagedResponse<PaymentResponse> getAllPayments(
             Pageable pageable, UUID tenantId, UUID agreementId,
             String search, LocalDate from, LocalDate to) {
 
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         Page<Payment> page;
         if (from != null && to != null) {
             page = paymentRepository.findAllWithFiltersAndDates(
-                    landlordId, tenantId, agreementId, search, from, to, pageable);
+                    landlordId, propertyId, tenantId, agreementId, search, from, to, pageable);
         } else {
             page = paymentRepository.findAllWithFilters(
-                    landlordId, tenantId, agreementId, search, pageable);
+                    landlordId, propertyId, tenantId, agreementId, search, pageable);
         }
 
         return PagedResponse.from(page.map(PaymentResponse::from));
@@ -51,9 +58,10 @@ public class PaymentService {
 
     public PaymentResponse getPayment(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        return paymentRepository.findByIdAndLandlordId(id, landlordId)
-                .map(PaymentResponse::from)
+        Payment payment = paymentRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+        propertyAccessGuard.assertCanAccess(payment.getProperty().getId());
+        return PaymentResponse.from(payment);
     }
 
     // Beyond this many cycles ahead, stop hunting for an open slot for
@@ -68,6 +76,7 @@ public class PaymentService {
         var agreement = agreementRepository.findByIdAndLandlordId(
                         request.agreementId(), landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         if (agreement.getStatus() == AgreementStatus.TERMINATED) {
             throw new IllegalArgumentException(
@@ -93,6 +102,7 @@ public class PaymentService {
 
         Payment payment = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
+                .property(agreement.getProperty())
                 .tenant(agreement.getTenant())
                 .unit(agreement.getUnit())
                 .agreement(agreement)
@@ -111,6 +121,12 @@ public class PaymentService {
         // saveAndFlush (not save) so @CreationTimestamp's INSERT-time
         // population actually happens before this response is built.
         Payment saved = paymentRepository.saveAndFlush(payment);
+
+        auditWriter.record(AuditModule.PAYMENT, AuditAction.RECORD_PAYMENT,
+                agreement.getProperty().getId(), agreement.getTenant().getName(),
+                "%s recorded a UGX %,.0f payment for %s (%s).".formatted(
+                        JwtUtils.getCurrentUserName(), paidAmount,
+                        agreement.getTenant().getName(), agreement.getUnit().getRoomNumber()));
 
         if (appliesToOpeningArrears) {
             agreement.setOpeningBalance(agreement.getOpeningBalance().add(paidAmount));
@@ -158,6 +174,7 @@ public class PaymentService {
 
         Payment rollover = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
+                .property(agreement.getProperty())
                 .tenant(agreement.getTenant())
                 .unit(agreement.getUnit())
                 .agreement(agreement)

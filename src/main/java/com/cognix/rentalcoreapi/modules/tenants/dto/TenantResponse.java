@@ -9,6 +9,8 @@ import java.util.UUID;
 
 public record TenantResponse(
         UUID id,
+        UUID propertyId,
+        String propertyName,
         String name,
         String phone,
         String email,
@@ -27,7 +29,10 @@ public record TenantResponse(
 ) {
     public static TenantResponse from(Tenant tenant) {
         return new TenantResponse(
-                tenant.getId(), tenant.getName(), tenant.getPhone(),
+                tenant.getId(),
+                tenant.getProperty() != null ? tenant.getProperty().getId() : null,
+                tenant.getProperty() != null ? tenant.getProperty().getName() : null,
+                tenant.getName(), tenant.getPhone(),
                 tenant.getEmail(), tenant.getAddress(), tenant.getCreatedAt(),
                 null, null, null, null, null, null, null, null, null, null
         );
@@ -46,7 +51,7 @@ public record TenantResponse(
             Boolean currentCyclePaid) {
 
         return new TenantResponse(
-                this.id, this.name, this.phone,
+                this.id, this.propertyId, this.propertyName, this.name, this.phone,
                 this.email, this.address, this.createdAt,
                 currentUnit, monthlyRent, currentBalance, openingArrears,
                 totalEverOwed, totalEverPaid,

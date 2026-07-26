@@ -1,5 +1,7 @@
 package com.cognix.rentalcoreapi.shared.security;
 
+import com.cognix.rentalcoreapi.modules.auth.model.User;
+import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +24,7 @@ import java.util.UUID;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -29,34 +32,70 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                     @NonNull FilterChain filterChain)
             throws ServletException, IOException {
 
-        final String authHeader = request.getHeader("Authorization");
+        // Active-property context (X-Property-Id) applies for the whole request;
+        // set it up front and always clear it in the finally so it can't leak
+        // onto the next request served by this pooled thread.
+        PropertyContextHolder.set(parsePropertyId(request.getHeader("X-Property-Id")));
+        try {
+            final String authHeader = request.getHeader("Authorization");
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            final String token = authHeader.substring(7);
+
+            // isTokenValid rejects expired tokens and special-purpose tokens
+            // (e.g. INVITE), so those can't be used to authenticate a request.
+            if (!jwtService.isTokenValid(token)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                UUID userId = jwtService.extractUserId(token);
+
+                // Reload the user each request so role changes and
+                // deactivations take effect immediately (the token isn't
+                // trusted for role/account — only for identity).
+                userRepository.findById(userId)
+                        .filter(User::isEnabled)
+                        .ifPresent(user -> {
+                            AuthenticatedUser authenticatedUser = new AuthenticatedUser(
+                                    user.getAccountOwnerId(), user.getId(),
+                                    user.getRole(), user.getName(), user.getUsername());
+
+                            UsernamePasswordAuthenticationToken authToken =
+                                    new UsernamePasswordAuthenticationToken(
+                                            authenticatedUser, null, authenticatedUser.getAuthorities());
+
+                            authToken.setDetails(
+                                    new WebAuthenticationDetailsSource().buildDetails(request));
+                            SecurityContextHolder.getContext().setAuthentication(authToken);
+                        });
+            }
+
             filterChain.doFilter(request, response);
-            return;
+        } finally {
+            PropertyContextHolder.clear();
         }
+    }
 
-        final String token = authHeader.substring(7);
-
-        if (!jwtService.isTokenValid(token)) {
-            filterChain.doFilter(request, response);
-            return;
+    /**
+     * Parses the X-Property-Id header into a UUID, tolerating a missing/blank
+     * header (returns null → "All properties") and a malformed value (ignored
+     * rather than failing the whole request).
+     */
+    private UUID parsePropertyId(String headerValue) {
+        if (headerValue == null || headerValue.isBlank()) {
+            return null;
         }
-
-        if (SecurityContextHolder.getContext().getAuthentication() == null) {
-            UUID landlordId = jwtService.extractUserId(token);
-            String username = jwtService.extractUsername(token);
-
-            AuthenticatedUser authenticatedUser = new AuthenticatedUser(landlordId, username);
-
-            UsernamePasswordAuthenticationToken authToken =
-                    new UsernamePasswordAuthenticationToken(
-                            authenticatedUser, null, authenticatedUser.getAuthorities());
-
-            authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(authToken);
+        try {
+            return UUID.fromString(headerValue.trim());
+        } catch (IllegalArgumentException ex) {
+            log.warn("Ignoring malformed X-Property-Id header: {}", headerValue);
+            return null;
         }
-
-        filterChain.doFilter(request, response);
     }
 }

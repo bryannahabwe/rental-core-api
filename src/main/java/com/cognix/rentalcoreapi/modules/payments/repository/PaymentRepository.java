@@ -68,27 +68,38 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("source") PaymentSource source,
             @Param("cutoff") LocalDate cutoff);
 
-    // ── Reports ─────────────────────────────────────────────
+    // ── Reports — property filter is optional (:propertyId IS NULL → all) ──
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
             "WHERE p.landlord.id = :landlordId " +
+            "AND (:propertyId IS NULL OR p.property.id = :propertyId) " +
             "AND p.paymentDate BETWEEN :from AND :to")
     BigDecimal sumAmountByLandlordIdAndDateRange(
             @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to
     );
 
+    @Query("SELECT COUNT(p) FROM Payment p " +
+            "WHERE p.landlord.id = :landlordId " +
+            "AND (:propertyId IS NULL OR p.property.id = :propertyId) " +
+            "AND p.paymentDate BETWEEN :from AND :to")
     long countByLandlordIdAndPaymentDateBetween(
-            UUID landlordId, LocalDate from, LocalDate to);
+            @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 
     // ── Search + filter ─────────────────────────────────────
     @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR p.property.id = :propertyId) AND " +
             "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
             "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +
             "(:search IS NULL OR LOWER(p.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(p.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
     Page<Payment> findAllWithFilters(
             @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
             @Param("tenantId") UUID tenantId,
             @Param("agreementId") UUID agreementId,
             @Param("search") String search,
@@ -96,6 +107,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     );
 
     @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR p.property.id = :propertyId) AND " +
             "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
             "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +
             "(:search IS NULL OR LOWER(p.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
@@ -103,6 +115,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             "p.paymentDate >= :from AND p.paymentDate <= :to")
     Page<Payment> findAllWithFiltersAndDates(
             @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
             @Param("tenantId") UUID tenantId,
             @Param("agreementId") UUID agreementId,
             @Param("search") String search,

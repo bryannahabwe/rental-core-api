@@ -630,7 +630,9 @@ Logo uploads via `fileStorageService.upload(file, "landlord/logo", landlordId)`.
 | Manual receipt tab (no DB write, tenant picker + manual fields)      | ✅ Done                         |
 | Settings page — mobile menu with Business Profile + Receipt Settings | ✅ Done                         |
 | GitLab CI frontend deployment                                        | ✅ Done                         |
-| Multi-property support                                               | ⏳ Pending (next major feature) |
+| Multi-property support                                               | ✅ Done                         |
+| User management & roles (SUPER_ADMIN / ADMIN / PROPERTY_MANAGER)     | ✅ Done                         |
+| Audit trail & activity feed                                          | ✅ Done                         |
 | MTN/Airtel mobile money integration                                  | ⏳ Post-MVP                     |
 | Email/SMS notifications                                              | ⏳ Post-MVP                     |
 
@@ -710,22 +712,96 @@ Logo uploads via `fileStorageService.upload(file, "landlord/logo", landlordId)`.
 
 ## 11. Pending Features
 
-### Multi-Property Support (Next Major Feature)
+### Multi-Property Support ✅ Implemented
 
-Landlords with multiple properties need to:
+Landlords can create named properties (e.g. "Kamwokya Flats", "Nansana
+Apartments"), assign units/tenants/agreements/payments to one, filter every view
+by the active property, and switch between properties (or an "All properties"
+aggregate) from a switcher in the sidebar/top bar.
 
-- Create named properties (e.g. "Kamwokya Flats", "Nansana Apartments")
-- Assign units to a specific property
-- Filter dashboard, tenants, payments by property
-- See per-property and all-property views
+**How it works:**
 
-**Estimated impact:**
+- New `properties` table (`landlord_id` FK). Migration `V14__add_properties.sql`
+  creates it, seeds one default property per existing landlord (named from
+  `landlord_settings.company_name`, else "My Property"), and backfills a
+  NOT NULL `property_id` FK on `rental_units`, `tenants`, `rental_agreements`,
+  and `payments`.
+- `Property` CRUD lives in `modules/properties` (`/properties` endpoints);
+  registration auto-creates a default property; a property can't be deleted
+  while it still owns units or tenants.
+- **Reads** (lists + reports) scope to the active property via an optional
+  `X-Property-Id` header, resolved at `JwtUtils.getCurrentPropertyId()`. Absent
+  header = landlord-wide aggregate ("All properties"). Repo queries use the
+  `(:propertyId IS NULL OR x.property.id = :propertyId)` idiom.
+- **Writes**: unit/tenant create require `propertyId`; agreements derive it from
+  the chosen unit (and reject cross-property tenant/unit pairings); payments
+  inherit it from their agreement.
+- Frontend: `propertyStore` holds the selection; `services/api.js` injects the
+  header; the selection is folded into React Query keys so switching refetches.
+  `PropertySwitcher` sits in the sidebar/mobile top bar; a `Properties` page
+  manages the list.
 
-- New `properties` table with `landlord_id`
-- `property_id` FK on `rental_units`
-- All queries gain optional `property_id` filter
-- Frontend: property switcher in sidebar/header
-- Dashboard: per-property stats or aggregate toggle
+### User Management & Roles ✅ Implemented
+
+Each account (anchored by the owner's user id, stored as `landlord_id`) can have
+multiple users with roles:
+
+- **SUPER_ADMIN** — the account owner; full control incl. user management.
+- **ADMIN** — full-access staff (all properties, reports, settings); may manage
+  PROPERTY_MANAGERs only.
+- **PROPERTY_MANAGER** — limited to assigned properties (`user_properties`);
+  manages tenants/units/agreements/payments there; no reports/settings/user
+  management/property CRUD, and no "All properties" aggregate.
+
+**How it works:**
+
+- `users` gains `role`, `status` (ACTIVE/INVITED/DEACTIVATED), and
+  `account_owner_id`; `phone_number`/`password_hash` are nullable (invited staff
+  join by email). Migration `V15__add_user_roles_and_assignments.sql` backfills
+  every existing user as an active SUPER_ADMIN owner and creates `user_properties`.
+- The JWT filter reloads the `User` from the DB each request and builds the
+  principal from the entity (`accountOwnerId`, `role`, `userId`), so role changes
+  and deactivations take effect immediately. `getCurrentLandlordId()` still
+  returns the account anchor, leaving all existing scoping untouched.
+- Authorization: `@EnableMethodSecurity` + `@PreAuthorize` gate admin-only
+  endpoints (property writes, reports, settings, `/users`); `PropertyAccessGuard`
+  enforces the manager → assigned-property restriction in the scoped services.
+- Invites: `POST /users/invite` creates an INVITED user + a short-lived
+  `purpose=INVITE` JWT emailed via the Brevo stack (`modules/notification`;
+  logs the link when `app.mail.brevo.enabled=false`). `POST /auth/accept-invite`
+  sets a password and activates. Login accepts phone **or** email.
+- Frontend: role in `authStore`; role-aware sidebar/bottom-nav + route guards;
+  managers land on Tenants and the switcher shows only assigned properties;
+  `UsersPage` (invite/deactivate) and a public `AcceptInvitePage`. The React
+  Query cache is cleared on login so a new user never sees a prior session's data.
+
+### Audit Trail & Activity Feed ✅ Implemented
+
+Every significant action writes an immutable record whose human-readable sentence
+is built server-side and stored, so the UI just displays it (e.g. *"Ada recorded
+a UGX 300,000 payment for Tom Okello (A1)."*). Pattern ported from
+`greenlink-cargo-api`'s `audit/` package.
+
+**How it works:**
+
+- New `modules/audit` package: an INSERT-only `AuditTrail` entity
+  (`account_id` + optional `property_id`, actor, `module`, `action`,
+  `affected_record_id`, and the pre-built `statement`), two enums, an
+  `AuditWriter` service, and a read `AuditController` at `/activity`.
+- `auditWriter.record(...)` is called at the end of each state-changing service
+  method (tenant/unit/agreement/payment/property/user creates, updates via a
+  `field 'old' → 'new'` diff, deletes, move-outs, invites) inside the same
+  `@Transactional`, so the action and its audit row commit together. Auth events
+  (login, accept-invite) use an explicit-actor overload. The actor's name comes
+  from `AuthenticatedUser.name`.
+- Migration `V16__create_audit_trail.sql` creates the table + indexes and a
+  Postgres **immutability trigger** (UPDATE/DELETE are rejected).
+- Read: `GET /activity` (paged; `module`/`action`/`search`/`from`/`to` filters),
+  `@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")`, scoped to the account —
+  managers get 403.
+- Frontend: an admin-only **Activity** page (`pages/ActivityPage.jsx`) — a
+  chronological feed of sentences with a module icon, actor, and relative time,
+  plus a module filter + search.
 
 ### Other Pending
 

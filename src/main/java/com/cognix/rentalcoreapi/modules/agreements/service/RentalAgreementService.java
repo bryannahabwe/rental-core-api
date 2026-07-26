@@ -9,12 +9,17 @@ import com.cognix.rentalcoreapi.modules.agreements.model.BillingModel;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import com.cognix.rentalcoreapi.modules.agreements.model.TenantType;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
+import com.cognix.rentalcoreapi.modules.audit.AuditDiff;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
+import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
 import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -37,19 +42,22 @@ public class RentalAgreementService {
     private final TenantRepository tenantRepository;
     private final RentalUnitRepository unitRepository;
     private final PaymentRepository paymentRepository;
+    private final PropertyAccessGuard propertyAccessGuard;
+    private final AuditWriter auditWriter;
 
     public PagedResponse<RentalAgreementResponse> getAllAgreements(
             Pageable pageable, String search, AgreementStatus status) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         Page<RentalAgreement> page;
 
         if (status != null) {
             page = agreementRepository.findAllByLandlordIdWithStatusAndSearch(
-                    landlordId, status, search, pageable);
+                    landlordId, status, propertyId, search, pageable);
         } else {
             page = agreementRepository.findAllByLandlordIdWithSearch(
-                    landlordId, search, pageable);
+                    landlordId, propertyId, search, pageable);
         }
 
         return PagedResponse.from(page.map(RentalAgreementResponse::from));
@@ -57,9 +65,10 @@ public class RentalAgreementService {
 
     public RentalAgreementResponse getAgreement(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        return agreementRepository.findByIdAndLandlordId(id, landlordId)
-                .map(RentalAgreementResponse::from)
+        RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
+        return RentalAgreementResponse.from(agreement);
     }
 
     @Transactional
@@ -68,9 +77,19 @@ public class RentalAgreementService {
 
         var unit = unitRepository.findByIdAndLandlordId(request.unitId(), landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Unit not found"));
+        propertyAccessGuard.assertCanAccess(unit.getProperty().getId());
 
         var tenant = tenantRepository.findByIdAndLandlordId(request.tenantId(), landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+
+        // Tenant and unit must live in the same property — an agreement's
+        // property is derived from the unit, so a cross-property pairing would
+        // otherwise silently file the tenant's payments under the wrong book.
+        if (tenant.getProperty() != null && unit.getProperty() != null
+                && !tenant.getProperty().getId().equals(unit.getProperty().getId())) {
+            throw new IllegalArgumentException(
+                    "Tenant and unit belong to different properties");
+        }
 
         if (agreementRepository.existsByUnitIdAndStatus(request.unitId(), AgreementStatus.ACTIVE)) {
             throw new IllegalArgumentException(
@@ -105,6 +124,7 @@ public class RentalAgreementService {
 
         RentalAgreement agreement = RentalAgreement.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
+                .property(unit.getProperty())
                 .tenant(tenant)
                 .unit(unit)
                 .startDate(request.startDate())
@@ -121,7 +141,14 @@ public class RentalAgreementService {
 
         // saveAndFlush (not save) so @CreationTimestamp's INSERT-time
         // population actually happens before this response is built.
-        return RentalAgreementResponse.from(agreementRepository.saveAndFlush(agreement));
+        RentalAgreement saved = agreementRepository.saveAndFlush(agreement);
+
+        auditWriter.record(AuditModule.RENTAL_AGREEMENT, AuditAction.CREATE,
+                unit.getProperty().getId(), tenant.getName(),
+                "%s created an agreement for %s in unit %s.".formatted(
+                        JwtUtils.getCurrentUserName(), tenant.getName(), unit.getRoomNumber()));
+
+        return RentalAgreementResponse.from(saved);
     }
 
     @Transactional
@@ -130,6 +157,7 @@ public class RentalAgreementService {
 
         RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         if (agreement.getStatus() == AgreementStatus.TERMINATED) {
             throw new IllegalArgumentException("Agreement is already terminated");
@@ -148,7 +176,15 @@ public class RentalAgreementService {
         unit.setAvailable(true);
         unitRepository.save(unit);
 
-        return RentalAgreementResponse.from(agreementRepository.save(agreement));
+        RentalAgreement saved = agreementRepository.save(agreement);
+
+        auditWriter.record(AuditModule.RENTAL_AGREEMENT, AuditAction.MOVE_OUT,
+                agreement.getProperty().getId(), agreement.getTenant().getName(),
+                "%s recorded move-out for %s from unit %s.".formatted(
+                        JwtUtils.getCurrentUserName(), agreement.getTenant().getName(),
+                        unit.getRoomNumber()));
+
+        return RentalAgreementResponse.from(saved);
     }
 
     @Transactional
@@ -157,6 +193,13 @@ public class RentalAgreementService {
 
         RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
+
+        var oldRent = agreement.getRentAmount();
+        var oldDeposit = agreement.getDepositAmount();
+        var oldBilling = agreement.getBillingModel();
+        var oldOpening = agreement.getOpeningBalance();
+        var oldStart = agreement.getStartDate();
 
         // Update allowed fields
         if (request.rentAmount() != null) {
@@ -177,7 +220,24 @@ public class RentalAgreementService {
                     Math.min(request.startDate().getDayOfMonth(), 28));
         }
 
-        return RentalAgreementResponse.from(agreementRepository.save(agreement));
+        List<String> changes = new ArrayList<>();
+        AuditDiff.diff(changes, "rent", oldRent, agreement.getRentAmount());
+        AuditDiff.diff(changes, "deposit", oldDeposit, agreement.getDepositAmount());
+        AuditDiff.diff(changes, "billing model", oldBilling, agreement.getBillingModel());
+        AuditDiff.diff(changes, "opening balance", oldOpening, agreement.getOpeningBalance());
+        AuditDiff.diff(changes, "start date", oldStart, agreement.getStartDate());
+
+        RentalAgreement saved = agreementRepository.save(agreement);
+
+        if (!changes.isEmpty()) {
+            auditWriter.record(AuditModule.RENTAL_AGREEMENT, AuditAction.UPDATE,
+                    saved.getProperty().getId(), saved.getTenant().getName(),
+                    "%s updated the agreement for %s: %s.".formatted(
+                            JwtUtils.getCurrentUserName(), saved.getTenant().getName(),
+                            String.join("; ", changes)));
+        }
+
+        return RentalAgreementResponse.from(saved);
     }
 
     public List<CycleStatusResponse> getCycleStatuses(UUID agreementId) {
@@ -186,6 +246,7 @@ public class RentalAgreementService {
         RentalAgreement agreement = agreementRepository
                 .findByIdAndLandlordId(agreementId, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         return computeCycleStatuses(agreement);
     }

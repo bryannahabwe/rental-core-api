@@ -33,18 +33,20 @@ public class ReportService {
 
     public SummaryResponse getSummary() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
 
-        long totalUnits = unitRepository.countByLandlordId(landlordId);
-        long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false);
-        long availableUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true);
-        long totalTenants = tenantRepository.countByLandlordId(landlordId);
+        long totalUnits = unitRepository.countByLandlordId(landlordId, propertyId);
+        long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false, propertyId);
+        long availableUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true, propertyId);
+        long totalTenants = tenantRepository.countByLandlordId(landlordId, propertyId);
         long activeAgreements = agreementRepository.countByLandlordIdAndStatus(
-                landlordId, AgreementStatus.ACTIVE);
+                landlordId, AgreementStatus.ACTIVE, propertyId);
         long terminatedAgreements = agreementRepository.countByLandlordIdAndStatus(
-                landlordId, AgreementStatus.TERMINATED);
+                landlordId, AgreementStatus.TERMINATED, propertyId);
 
         BigDecimal totalRevenue = paymentRepository.sumAmountByLandlordIdAndDateRange(
                 landlordId,
+                propertyId,
                 LocalDate.of(2000, 1, 1),
                 LocalDate.now()
         );
@@ -62,6 +64,7 @@ public class ReportService {
 
     public PaymentReportResponse getPaymentReport(LocalDate from, LocalDate to) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
 
         if (from == null) {
             from = LocalDate.now().withDayOfMonth(1);
@@ -75,10 +78,10 @@ public class ReportService {
         }
 
         long totalPayments = paymentRepository.countByLandlordIdAndPaymentDateBetween(
-                landlordId, from, to);
+                landlordId, propertyId, from, to);
 
         BigDecimal totalAmount = paymentRepository.sumAmountByLandlordIdAndDateRange(
-                landlordId, from, to);
+                landlordId, propertyId, from, to);
 
         return new PaymentReportResponse(from, to, totalPayments, totalAmount);
     }
@@ -92,6 +95,7 @@ public class ReportService {
      */
     public List<MonthlyCollectionResponse> getMonthlyCollection(LocalDate from, LocalDate to) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
 
         if (from == null) {
             from = LocalDate.now().minusMonths(5).withDayOfMonth(1);
@@ -113,9 +117,9 @@ public class ReportService {
             LocalDate bucketEnd = monthEnd.isAfter(to) ? to : monthEnd;
 
             long totalPayments = paymentRepository.countByLandlordIdAndPaymentDateBetween(
-                    landlordId, bucketStart, bucketEnd);
+                    landlordId, propertyId, bucketStart, bucketEnd);
             BigDecimal totalAmount = paymentRepository.sumAmountByLandlordIdAndDateRange(
-                    landlordId, bucketStart, bucketEnd);
+                    landlordId, propertyId, bucketStart, bucketEnd);
 
             String label = cursor.getMonth().getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
                     + " " + cursor.getYear();
@@ -130,10 +134,11 @@ public class ReportService {
 
     public OccupancyReportResponse getOccupancyReport() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
 
-        long totalUnits = unitRepository.countByLandlordId(landlordId);
-        long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false);
-        long availableUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true);
+        long totalUnits = unitRepository.countByLandlordId(landlordId, propertyId);
+        long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false, propertyId);
+        long availableUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, true, propertyId);
 
         BigDecimal occupancyRate = totalUnits > 0
                 ? BigDecimal.valueOf(occupiedUnits)

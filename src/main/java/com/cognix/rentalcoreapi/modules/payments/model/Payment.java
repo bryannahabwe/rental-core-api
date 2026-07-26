@@ -2,6 +2,7 @@ package com.cognix.rentalcoreapi.modules.payments.model;
 
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import com.cognix.rentalcoreapi.modules.auth.model.User;
+import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
 import com.cognix.rentalcoreapi.modules.units.model.RentalUnit;
 import com.cognix.rentalcoreapi.shared.entity.BaseEntity;
@@ -23,6 +24,10 @@ public class Payment extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "landlord_id", nullable = false)
     private User landlord;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "property_id", nullable = false)
+    private Property property;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tenant_id", nullable = false)

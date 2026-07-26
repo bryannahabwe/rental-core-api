@@ -1,5 +1,9 @@
 package com.cognix.rentalcoreapi.modules.tenants.service;
 
+import com.cognix.rentalcoreapi.modules.audit.AuditDiff;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
+import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.agreements.dto.CycleStatusResponse;
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.model.BillingModel;
@@ -11,6 +15,8 @@ import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.properties.model.Property;
+import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantLedgerResponse;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantRequest;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantResponse;
@@ -18,11 +24,13 @@ import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
 import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -40,12 +48,16 @@ public class TenantService {
     private final RentalAgreementRepository agreementRepository;
     private final PaymentRepository paymentRepository;
     private final RentalAgreementService agreementService;
+    private final PropertyRepository propertyRepository;
+    private final PropertyAccessGuard propertyAccessGuard;
+    private final AuditWriter auditWriter;
 
     public PagedResponse<TenantResponse> getAllTenants(Pageable pageable, String search) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         Page<TenantResponse> responses = tenantRepository
-                .findAllByLandlordIdWithSearch(landlordId, search, pageable)
+                .findAllByLandlordIdWithSearch(landlordId, propertyId, search, pageable)
                 .map(tenant -> enrichWithBalance(tenant, landlordId));
 
         return PagedResponse.from(responses);
@@ -55,11 +67,14 @@ public class TenantService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+        propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
         return enrichWithBalance(tenant, landlordId);
     }
 
+    @Transactional
     public TenantResponse createTenant(TenantRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        propertyAccessGuard.assertCanAccess(request.propertyId());
 
         if (tenantRepository.existsByPhoneAndLandlordId(request.phone(), landlordId)) {
             throw new IllegalArgumentException(
@@ -72,8 +87,13 @@ public class TenantService {
                     "Tenant with email already exists: " + request.email());
         }
 
+        Property property = propertyRepository
+                .findByIdAndLandlordId(request.propertyId(), landlordId)
+                .orElseThrow(() -> new IllegalArgumentException("Property not found"));
+
         Tenant tenant = Tenant.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
+                .property(property)
                 .name(request.name())
                 .phone(request.phone())
                 .email(request.email())
@@ -84,14 +104,28 @@ public class TenantService {
         // population actually happens before this response is built —
         // otherwise createdAt comes back null until the next fetch, since
         // UUID-strategy inserts don't force an immediate flush.
-        return TenantResponse.from(tenantRepository.saveAndFlush(tenant));
+        Tenant saved = tenantRepository.saveAndFlush(tenant);
+
+        auditWriter.record(AuditModule.TENANT, AuditAction.CREATE,
+                property.getId(), saved.getName(),
+                "%s added tenant %s.".formatted(JwtUtils.getCurrentUserName(), saved.getName()));
+
+        return TenantResponse.from(saved);
     }
 
+    @Transactional
     public TenantResponse updateTenant(UUID id, TenantRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+        propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
+
+        List<String> changes = new ArrayList<>();
+        AuditDiff.diff(changes, "name", tenant.getName(), request.name());
+        AuditDiff.diff(changes, "phone", tenant.getPhone(), request.phone());
+        AuditDiff.diff(changes, "email", tenant.getEmail(), request.email());
+        AuditDiff.diff(changes, "address", tenant.getAddress(), request.address());
 
         if (!tenant.getPhone().equals(request.phone()) &&
                 tenantRepository.existsByPhoneAndLandlordId(request.phone(), landlordId)) {
@@ -111,16 +145,33 @@ public class TenantService {
         tenant.setEmail(request.email());
         tenant.setAddress(request.address());
 
-        return TenantResponse.from(tenantRepository.save(tenant));
+        Tenant saved = tenantRepository.save(tenant);
+
+        if (!changes.isEmpty()) {
+            auditWriter.record(AuditModule.TENANT, AuditAction.UPDATE,
+                    saved.getProperty().getId(), saved.getName(),
+                    "%s updated tenant %s: %s.".formatted(
+                            JwtUtils.getCurrentUserName(), saved.getName(),
+                            String.join("; ", changes)));
+        }
+
+        return TenantResponse.from(saved);
     }
 
+    @Transactional
     public void deleteTenant(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+        propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
+        UUID propertyId = tenant.getProperty().getId();
+        String name = tenant.getName();
         tenantRepository.delete(tenant);
+
+        auditWriter.record(AuditModule.TENANT, AuditAction.DELETE, propertyId, name,
+                "%s deleted tenant %s.".formatted(JwtUtils.getCurrentUserName(), name));
     }
 
     /**
@@ -133,6 +184,7 @@ public class TenantService {
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(tenantId, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+        propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
         RentalAgreement agreement = agreementRepository
                 .findFirstByTenantIdAndLandlordIdAndStatus(
@@ -221,8 +273,9 @@ public class TenantService {
     public PagedResponse<PaymentResponse> getTenantTransactions(UUID tenantId, Pageable pageable) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        tenantRepository.findByIdAndLandlordId(tenantId, landlordId)
+        Tenant tenant = tenantRepository.findByIdAndLandlordId(tenantId, landlordId)
                 .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+        propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
         RentalAgreement agreement = agreementRepository
                 .findFirstByTenantIdAndLandlordIdAndStatus(

@@ -8,6 +8,8 @@ import java.util.UUID;
 
 public record RentalUnitResponse(
         UUID id,
+        UUID propertyId,
+        String propertyName,
         String roomNumber,
         String description,
         BigDecimal rentAmount,
@@ -17,6 +19,8 @@ public record RentalUnitResponse(
     public static RentalUnitResponse from(RentalUnit unit) {
         return new RentalUnitResponse(
                 unit.getId(),
+                unit.getProperty() != null ? unit.getProperty().getId() : null,
+                unit.getProperty() != null ? unit.getProperty().getName() : null,
                 unit.getRoomNumber(),
                 unit.getDescription(),
                 unit.getRentAmount(),

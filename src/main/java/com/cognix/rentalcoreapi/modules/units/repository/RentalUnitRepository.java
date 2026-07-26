@@ -18,16 +18,31 @@ public interface RentalUnitRepository extends JpaRepository<RentalUnit, UUID> {
 
     boolean existsByRoomNumberAndLandlordId(String roomNumber, UUID landlordId);
 
-    long countByLandlordId(UUID landlordId);
+    long countByPropertyId(UUID propertyId);
 
-    long countByLandlordIdAndIsAvailable(UUID landlordId, boolean isAvailable);
+    // ── Reports — property filter is optional (:propertyId IS NULL → all) ──
+    @Query("SELECT COUNT(u) FROM RentalUnit u WHERE u.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR u.property.id = :propertyId)")
+    long countByLandlordId(
+            @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId);
+
+    @Query("SELECT COUNT(u) FROM RentalUnit u WHERE u.landlord.id = :landlordId AND " +
+            "u.isAvailable = :isAvailable AND " +
+            "(:propertyId IS NULL OR u.property.id = :propertyId)")
+    long countByLandlordIdAndIsAvailable(
+            @Param("landlordId") UUID landlordId,
+            @Param("isAvailable") boolean isAvailable,
+            @Param("propertyId") UUID propertyId);
 
     @Query("SELECT u FROM RentalUnit u WHERE u.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR u.property.id = :propertyId) AND " +
             "(:search IS NULL OR LOWER(u.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(u.description) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))) AND " +
             "(:isAvailable IS NULL OR u.isAvailable = :isAvailable)")
     Page<RentalUnit> findAllByLandlordIdWithSearch(
             @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
             @Param("search") String search,
             @Param("isAvailable") Boolean isAvailable,
             Pageable pageable

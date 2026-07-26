@@ -32,10 +32,19 @@ app:
     secret: ${JWT_SECRET}
     expiry-ms: ${JWT_EXPIRY_MS:86400000}
     refresh-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}
+    invite-expiry-ms: ${JWT_INVITE_EXPIRY_MS:259200000}
+  frontend:
+    url: ${FRONTEND_URL:http://localhost:5175}
   cloudinary:
     cloud-name: ${CLOUDINARY_CLOUD_NAME}
     api-key: ${CLOUDINARY_API_KEY}
     api-secret: ${CLOUDINARY_API_SECRET}
+  mail:
+    brevo:
+      enabled: ${BREVO_ENABLED:false}
+      api-key: ${BREVO_API_KEY:}
+      from-email: ${BREVO_FROM_EMAIL:no-reply@rentflow.example}
+      from-name: ${BREVO_FROM_NAME:RentFlow}
 
 logging:
   level:

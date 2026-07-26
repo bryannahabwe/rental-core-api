@@ -20,14 +20,23 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
 
     boolean existsByEmailAndLandlordId(String email, UUID landlordId);
 
-    long countByLandlordId(UUID landlordId);
+    long countByPropertyId(UUID propertyId);
+
+    // ── Reports — property filter is optional (:propertyId IS NULL → all) ──
+    @Query("SELECT COUNT(t) FROM Tenant t WHERE t.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR t.property.id = :propertyId)")
+    long countByLandlordId(
+            @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId);
 
     @Query("SELECT t FROM Tenant t WHERE t.landlord.id = :landlordId AND " +
+            "(:propertyId IS NULL OR t.property.id = :propertyId) AND " +
             "(:search IS NULL OR LOWER(t.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(t.phone) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(t.email) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
     Page<Tenant> findAllByLandlordIdWithSearch(
             @Param("landlordId") UUID landlordId,
+            @Param("propertyId") UUID propertyId,
             @Param("search") String search,
             Pageable pageable
     );
