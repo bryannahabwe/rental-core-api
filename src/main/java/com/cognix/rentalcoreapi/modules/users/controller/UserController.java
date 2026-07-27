@@ -50,6 +50,12 @@ public class UserController {
         return ResponseEntity.ok(userManagementService.updateUser(id, request));
     }
 
+    @PostMapping("/{id}/resend-invite")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<UserResponse> resendInvite(@PathVariable UUID id) {
+        return ResponseEntity.ok(userManagementService.resendInvite(id));
+    }
+
     @PostMapping("/{id}/deactivate")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<Void> deactivateUser(@PathVariable UUID id) {

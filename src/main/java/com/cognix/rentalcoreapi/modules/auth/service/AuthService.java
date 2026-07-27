@@ -133,6 +133,8 @@ public class AuthService {
 
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setStatus(UserStatus.ACTIVE);
+        // Consume the invite: clear the version so the link can't be replayed.
+        user.setInviteTokenVersion(null);
         userRepository.save(user);
 
         auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.ACCEPT_INVITE,
@@ -143,11 +145,18 @@ public class AuthService {
     }
 
     private User loadInvitedUser(String token) {
-        UUID userId = jwtService.validateInviteToken(token);
-        User user = userRepository.findById(userId)
+        JwtService.InviteToken invite = jwtService.validateInviteToken(token);
+        User user = userRepository.findById(invite.userId())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid invite link"));
         if (user.getStatus() != UserStatus.INVITED) {
             throw new IllegalArgumentException("This invitation has already been accepted");
+        }
+        // Reject links superseded by a resend (or already consumed): only the
+        // user's current token version is valid.
+        if (user.getInviteTokenVersion() == null
+                || !user.getInviteTokenVersion().equals(invite.version())) {
+            throw new IllegalArgumentException(
+                    "This invite link is no longer valid — a newer invitation has been sent");
         }
         return user;
     }

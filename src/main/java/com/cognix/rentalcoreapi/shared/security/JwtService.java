@@ -29,6 +29,12 @@ public class JwtService {
 
     private static final String PURPOSE_INVITE = "INVITE";
 
+    /** The identity carried by an invite token: who it's for and which issued
+     *  version it represents (compared against the user's current version so
+     *  superseded links can be rejected). */
+    public record InviteToken(UUID userId, UUID version) {
+    }
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
@@ -54,13 +60,16 @@ public class JwtService {
     /**
      * A single-use invite token embedded in the acceptance link. Carries a
      * {@code purpose=INVITE} claim so it can't be used to authenticate a normal
-     * request (see {@link #isTokenValid}).
+     * request (see {@link #isTokenValid}), plus an {@code inviteVersion} claim
+     * the caller compares against the user's current version to reject links
+     * superseded by a resend.
      */
-    public String generateInviteToken(UUID userId, String email) {
+    public String generateInviteToken(UUID userId, String email, UUID tokenVersion) {
         return Jwts.builder()
                 .subject(email)
                 .claim("userId", userId.toString())
                 .claim("purpose", PURPOSE_INVITE)
+                .claim("inviteVersion", tokenVersion.toString())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + inviteExpiryMs))
                 .signWith(getSigningKey())
@@ -68,10 +77,12 @@ public class JwtService {
     }
 
     /**
-     * Validates an invite token and returns the invited user's id.
-     * Throws if expired, tampered, or not an INVITE-purpose token.
+     * Validates an invite token and returns its {@link InviteToken} identity.
+     * Throws if expired, tampered, or not an INVITE-purpose token. The caller
+     * must still check {@link InviteToken#version()} against the user's current
+     * version to reject links that have been superseded by a resend.
      */
-    public UUID validateInviteToken(String token) {
+    public InviteToken validateInviteToken(String token) {
         Claims claims;
         try {
             claims = extractClaims(token);
@@ -81,7 +92,10 @@ public class JwtService {
         if (!PURPOSE_INVITE.equals(claims.get("purpose", String.class))) {
             throw new IllegalArgumentException("Invalid invite link");
         }
-        return UUID.fromString(claims.get("userId", String.class));
+        UUID userId = UUID.fromString(claims.get("userId", String.class));
+        String versionClaim = claims.get("inviteVersion", String.class);
+        UUID version = versionClaim != null ? UUID.fromString(versionClaim) : null;
+        return new InviteToken(userId, version);
     }
 
     public Claims extractClaims(String token) {

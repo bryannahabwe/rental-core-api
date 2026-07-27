@@ -44,6 +44,12 @@ public class User extends BaseEntity implements UserDetails {
     @Builder.Default
     private UserStatus status = UserStatus.ACTIVE;
 
+    // Rotated each time an invite is (re)issued so older invite links stop
+    // working — only the newest link is valid. Null for users that never went
+    // through the invite flow, and cleared once an invite is accepted.
+    @Column
+    private UUID inviteTokenVersion;
+
     // The account this user belongs to = the owner user's id. For the owner
     // this equals their own id. This is the anchor every data row is scoped to
     // (persisted as landlord_id elsewhere), so a manager acting on data writes

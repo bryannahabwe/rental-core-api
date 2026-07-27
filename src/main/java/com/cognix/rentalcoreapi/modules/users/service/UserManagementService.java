@@ -74,15 +74,35 @@ public class UserManagementService {
 
         replaceAssignments(user, request.role(), request.propertyIds(), account);
 
-        // Invite link → the public accept-invite page.
-        String token = jwtService.generateInviteToken(user.getId(), user.getEmail());
-        String acceptUrl = frontendUrl + "/accept-invite?token=" + token;
-        String accountName = userRepository.findById(account).map(User::getName).orElse("RentFlow");
-        emailService.sendInvite(user.getEmail(), user.getName(), accountName, acceptUrl);
+        sendInviteEmail(user, account);
 
         auditWriter.record(AuditModule.USER, AuditAction.INVITE, null, user.getEmail(),
                 "%s invited %s as %s.".formatted(
                         JwtUtils.getCurrentUserName(), user.getEmail(), labelFor(request.role())));
+
+        return toResponse(user);
+    }
+
+    /**
+     * Re-issues a fresh invite token and re-sends the invitation email for a
+     * user who hasn't accepted yet (e.g. the original link expired or was lost).
+     */
+    @Transactional
+    public UserResponse resendInvite(UUID id) {
+        UUID account = JwtUtils.getCurrentLandlordId();
+        User user = loadManageableUser(id, account);
+
+        if (user.getStatus() != UserStatus.INVITED) {
+            throw new IllegalArgumentException(user.getStatus() == UserStatus.ACTIVE
+                    ? "This user has already accepted their invitation"
+                    : "Cannot resend an invitation to a deactivated user");
+        }
+
+        sendInviteEmail(user, account);
+
+        auditWriter.record(AuditModule.USER, AuditAction.RESEND_INVITE, null, user.getEmail(),
+                "%s re-sent the invitation to %s.".formatted(
+                        JwtUtils.getCurrentUserName(), user.getEmail()));
 
         return toResponse(user);
     }
@@ -146,6 +166,21 @@ public class UserManagementService {
             throw new AccessDeniedException("Admins can only manage property managers");
         }
         return user;
+    }
+
+    /** Generates a fresh invite token and sends the branded invitation email. */
+    private void sendInviteEmail(User user, UUID account) {
+        // Rotate the token version so any previously issued link is invalidated
+        // — only the newest invitation can be accepted.
+        UUID tokenVersion = UUID.randomUUID();
+        user.setInviteTokenVersion(tokenVersion);
+        userRepository.save(user);
+
+        // Invite link → the public accept-invite page.
+        String token = jwtService.generateInviteToken(user.getId(), user.getEmail(), tokenVersion);
+        String acceptUrl = frontendUrl + "/accept-invite?token=" + token;
+        String accountName = userRepository.findById(account).map(User::getName).orElse("RentFlow");
+        emailService.sendInvite(user.getEmail(), user.getName(), accountName, acceptUrl);
     }
 
     private void replaceAssignments(User user, UserRole role, List<UUID> propertyIds, UUID account) {

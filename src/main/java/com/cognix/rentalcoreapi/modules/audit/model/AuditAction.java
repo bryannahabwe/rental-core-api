@@ -9,6 +9,7 @@ public enum AuditAction {
     RECORD_PAYMENT,
     LOGIN,
     INVITE,
+    RESEND_INVITE,
     ACCEPT_INVITE,
     DEACTIVATE,
     ROLE_CHANGE
