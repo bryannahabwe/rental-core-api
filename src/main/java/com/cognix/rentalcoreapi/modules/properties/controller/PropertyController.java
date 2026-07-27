@@ -47,7 +47,7 @@ public class PropertyController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Void> deleteProperty(@PathVariable UUID id) {
         propertyService.deleteProperty(id);
         return ResponseEntity.noContent().build();
