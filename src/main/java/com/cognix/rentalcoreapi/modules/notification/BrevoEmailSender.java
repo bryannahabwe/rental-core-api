@@ -31,11 +31,12 @@ public class BrevoEmailSender implements EmailSender {
     public BrevoEmailSender(
             @Value("${app.mail.brevo.api-key:}") String apiKey,
             @Value("${app.mail.brevo.from-email:}") String fromEmail,
-            @Value("${app.mail.brevo.from-name:RentFlow}") String fromName,
-            RestClient.Builder builder) {
+            @Value("${app.mail.brevo.from-name:RentFlow}") String fromName) {
         this.fromEmail = fromEmail;
         this.fromName = fromName;
-        this.restClient = builder
+        // Use the static builder rather than injecting a RestClient.Builder
+        // bean, which isn't auto-configured in every setup.
+        this.restClient = RestClient.builder()
                 .baseUrl("https://api.brevo.com")
                 .defaultHeader("api-key", apiKey)
                 .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)

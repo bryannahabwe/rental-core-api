@@ -41,7 +41,7 @@ app:
     api-secret: ${CLOUDINARY_API_SECRET}
   mail:
     brevo:
-      enabled: ${BREVO_ENABLED:false}
+      enabled: ${BREVO_ENABLED:true}
       api-key: ${BREVO_API_KEY:}
       from-email: ${BREVO_FROM_EMAIL:no-reply@rentflow.example}
       from-name: ${BREVO_FROM_NAME:RentFlow}
