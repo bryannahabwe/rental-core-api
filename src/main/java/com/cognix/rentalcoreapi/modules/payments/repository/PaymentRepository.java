@@ -68,10 +68,14 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("source") PaymentSource source,
             @Param("cutoff") LocalDate cutoff);
 
-    // ── Reports — property filter is optional (:propertyId IS NULL → all) ──
+    // ── Reports — property filter is optional (:propertyId IS NULL → all).
+    // ROLLOVER rows are excluded: they re-record cash already counted on the
+    // originating CASH payment (same paymentDate), so including them would
+    // double-count revenue and payment counts. ──
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
             "WHERE p.landlord.id = :landlordId " +
             "AND (:propertyId IS NULL OR p.property.id = :propertyId) " +
+            "AND p.source <> com.cognix.rentalcoreapi.modules.payments.model.PaymentSource.ROLLOVER " +
             "AND p.paymentDate BETWEEN :from AND :to")
     BigDecimal sumAmountByLandlordIdAndDateRange(
             @Param("landlordId") UUID landlordId,
@@ -83,6 +87,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     @Query("SELECT COUNT(p) FROM Payment p " +
             "WHERE p.landlord.id = :landlordId " +
             "AND (:propertyId IS NULL OR p.property.id = :propertyId) " +
+            "AND p.source <> com.cognix.rentalcoreapi.modules.payments.model.PaymentSource.ROLLOVER " +
             "AND p.paymentDate BETWEEN :from AND :to")
     long countByLandlordIdAndPaymentDateBetween(
             @Param("landlordId") UUID landlordId,
