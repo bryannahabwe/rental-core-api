@@ -39,15 +39,39 @@ public class PropertyAccessGuard {
      * <ul>
      *   <li>Admins/owners: the selected property, or {@code null} for the
      *       landlord-wide "All properties" aggregate.</li>
-     *   <li>Managers: must have a specific assigned property selected — returns
-     *       it, or throws (they get no aggregate view).</li>
+     *   <li>Managers with a property selected: that property (or throws if it
+     *       isn't assigned to them).</li>
+     *   <li>Managers with nothing selected: their default assigned property, so
+     *       they get a working view instead of the empty "All properties"
+     *       aggregate they have no access to. Throws only if they have no
+     *       assignments at all.</li>
      * </ul>
      */
     public UUID requireAccessibleProperty() {
         UUID selected = JwtUtils.getCurrentPropertyId().orElse(null);
-        if (JwtUtils.getCurrentRole() == UserRole.PROPERTY_MANAGER) {
-            assertCanAccess(selected); // throws if null or unassigned
+        if (JwtUtils.getCurrentRole() != UserRole.PROPERTY_MANAGER) {
+            return selected;
         }
-        return selected;
+        if (selected != null) {
+            assertCanAccess(selected); // throws if unassigned
+            return selected;
+        }
+        UUID fallback = defaultPropertyFor(JwtUtils.getCurrentUserId());
+        if (fallback == null) {
+            throw new AccessDeniedException("You are not assigned to any property");
+        }
+        return fallback;
+    }
+
+    /**
+     * A manager's default active property when none is explicitly selected: the
+     * oldest property assigned to them (matching the property list order), or
+     * {@code null} if they have no assignments.
+     */
+    public UUID defaultPropertyFor(UUID userId) {
+        return assignmentRepository.findAssignedPropertyIdsOrdered(userId)
+                .stream()
+                .findFirst()
+                .orElse(null);
     }
 }

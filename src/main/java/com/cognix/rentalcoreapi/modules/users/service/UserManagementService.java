@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -184,11 +185,19 @@ public class UserManagementService {
     }
 
     private void replaceAssignments(User user, UserRole role, List<UUID> propertyIds, UUID account) {
-        assignmentRepository.deleteByUserId(user.getId());
-        if (role != UserRole.PROPERTY_MANAGER || propertyIds == null) {
+        if (role != UserRole.PROPERTY_MANAGER) {
+            // Admins/owners are account-wide; drop any stale assignments.
+            assignmentRepository.deleteByUserId(user.getId());
             return;
         }
-        for (UUID propertyId : propertyIds.stream().distinct().toList()) {
+        // A property manager scoped to nothing can access nothing — reject it
+        // up front rather than creating a user who lands on an empty account.
+        if (propertyIds == null || propertyIds.stream().noneMatch(Objects::nonNull)) {
+            throw new IllegalArgumentException(
+                    "A property manager must be assigned at least one property");
+        }
+        assignmentRepository.deleteByUserId(user.getId());
+        for (UUID propertyId : propertyIds.stream().filter(Objects::nonNull).distinct().toList()) {
             if (!propertyRepository.existsByIdAndLandlordId(propertyId, account)) {
                 throw new IllegalArgumentException("Property not found: " + propertyId);
             }

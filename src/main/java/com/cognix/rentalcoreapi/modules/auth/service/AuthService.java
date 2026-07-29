@@ -15,6 +15,7 @@ import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
+import com.cognix.rentalcoreapi.modules.users.repository.UserPropertyAssignmentRepository;
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -31,6 +33,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PropertyRepository propertyRepository;
+    private final UserPropertyAssignmentRepository assignmentRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
@@ -165,6 +168,17 @@ public class AuthService {
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getUsername());
         String refreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername());
 
+        // A manager is scoped to specific properties; hand the client the list
+        // and a default so it can activate one on login instead of landing on
+        // the "All properties" view, which managers have no access to. Admins
+        // and owners are unrestricted, so they get no default (all-properties).
+        List<UUID> assignedPropertyIds = user.getRole() == UserRole.PROPERTY_MANAGER
+                ? assignmentRepository.findAssignedPropertyIdsOrdered(user.getId())
+                : List.of();
+        UUID defaultPropertyId = assignedPropertyIds.isEmpty()
+                ? null
+                : assignedPropertyIds.get(0);
+
         return new AuthResponse(
                 accessToken,
                 refreshToken,
@@ -172,7 +186,9 @@ public class AuthService {
                 user.getName(),
                 user.getPhoneNumber(),
                 user.getEmail(),
-                user.getRole().name()
+                user.getRole().name(),
+                assignedPropertyIds,
+                defaultPropertyId
         );
     }
 }
