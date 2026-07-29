@@ -18,16 +18,20 @@ import com.cognix.rentalcoreapi.modules.users.repository.UserPropertyAssignmentR
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class UserManagementService {
 
@@ -209,10 +213,11 @@ public class UserManagementService {
         return user;
     }
 
-    /** Generates a fresh invite token and sends the branded invitation email. */
+    /** Rotates the invite token and schedules the branded invitation email. */
     private void sendInviteEmail(User user, UUID account) {
         // Rotate the token version so any previously issued link is invalidated
-        // — only the newest invitation can be accepted.
+        // — only the newest invitation can be accepted. This must be persisted
+        // with the surrounding transaction so the emailed link is valid.
         UUID tokenVersion = UUID.randomUUID();
         user.setInviteTokenVersion(tokenVersion);
         userRepository.save(user);
@@ -221,7 +226,36 @@ public class UserManagementService {
         String token = jwtService.generateInviteToken(user.getId(), user.getEmail(), tokenVersion);
         String acceptUrl = frontendUrl + "/accept-invite?token=" + token;
         String accountName = userRepository.findById(account).map(User::getName).orElse("RentFlow");
-        emailService.sendInvite(user.getEmail(), user.getName(), accountName, acceptUrl);
+        String recipient = user.getEmail();
+        String name = user.getName();
+
+        // Send only after the transaction commits, so an email-provider outage
+        // can't roll back the invited user. Best-effort: failures are logged and
+        // the admin can use "Resend invite".
+        runAfterCommit(() -> {
+            try {
+                emailService.sendInvite(recipient, name, accountName, acceptUrl);
+            } catch (Exception e) {
+                log.warn("Invite email to {} failed to send: {}", recipient, e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Runs an action once the current transaction commits, or immediately if no
+     * transaction is active (e.g. in tests).
+     */
+    private void runAfterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     private void replaceAssignments(User user, UserRole role, List<UUID> propertyIds, UUID account) {
