@@ -237,6 +237,11 @@ public class UserManagementService {
                     "A property manager must be assigned at least one property");
         }
         assignmentRepository.deleteByUserId(user.getId());
+        // Force the deletes to hit the DB before the re-inserts below. Hibernate
+        // otherwise orders inserts ahead of deletes at flush, so re-assigning a
+        // property the user already had collides with the (user, property)
+        // unique constraint.
+        assignmentRepository.flush();
         for (UUID propertyId : propertyIds.stream().filter(Objects::nonNull).distinct().toList()) {
             if (!propertyRepository.existsByIdAndLandlordId(propertyId, account)) {
                 throw new IllegalArgumentException("Property not found: " + propertyId);

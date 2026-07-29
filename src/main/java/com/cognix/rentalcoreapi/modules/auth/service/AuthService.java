@@ -50,7 +50,10 @@ public class AuthService {
         }
 
         // The registrant is the account owner: SUPER_ADMIN, active, anchoring
-        // their own account.
+        // their own account. Assign the id up front so account_owner_id can
+        // reference it in the same insert — the column is a NOT NULL self-FK,
+        // so the row can't be written first and back-filled afterwards.
+        UUID accountId = UUID.randomUUID();
         User user = User.builder()
                 .name(request.name())
                 .phoneNumber(request.phoneNumber())
@@ -59,11 +62,9 @@ public class AuthService {
                 .role(UserRole.SUPER_ADMIN)
                 .status(UserStatus.ACTIVE)
                 .build();
-
-        userRepository.save(user);
-        // accountOwnerId can only be set once the generated id exists.
-        user.setAccountOwnerId(user.getId());
-        userRepository.save(user);
+        user.setId(accountId);
+        user.setAccountOwnerId(accountId);
+        user = userRepository.save(user);
 
         // Every landlord starts with one default property so the app always has
         // a property to scope units/tenants under; they name it at sign-up (or
