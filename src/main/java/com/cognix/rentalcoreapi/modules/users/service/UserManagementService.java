@@ -10,6 +10,7 @@ import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.notification.EmailService;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.users.dto.InviteUserRequest;
+import com.cognix.rentalcoreapi.modules.users.dto.UpdateProfileRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UpdateUserRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UserResponse;
 import com.cognix.rentalcoreapi.modules.users.model.UserPropertyAssignment;
@@ -54,6 +55,30 @@ public class UserManagementService {
         return toResponse(me);
     }
 
+    /** Lets any user update their own name and phone number. */
+    @Transactional
+    public UserResponse updateMe(UpdateProfileRequest request) {
+        User me = userRepository.findById(JwtUtils.getCurrentUserId())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        // Reject a phone number already taken by a different user.
+        userRepository.findByPhoneNumber(request.phoneNumber())
+                .filter(other -> !other.getId().equals(me.getId()))
+                .ifPresent(other -> {
+                    throw new IllegalArgumentException(
+                            "A user with this phone number already exists: " + request.phoneNumber());
+                });
+
+        me.setName(request.name());
+        me.setPhoneNumber(request.phoneNumber());
+        userRepository.save(me);
+
+        auditWriter.record(AuditModule.USER, AuditAction.PROFILE_UPDATE, null, me.getName(),
+                "%s updated their profile.".formatted(me.getName()));
+
+        return toResponse(me);
+    }
+
     @Transactional
     public UserResponse inviteUser(InviteUserRequest request) {
         UUID account = JwtUtils.getCurrentLandlordId();
@@ -64,8 +89,14 @@ public class UserManagementService {
                     "A user with this email already exists: " + request.email());
         }
 
+        if (userRepository.existsByPhoneNumber(request.phoneNumber())) {
+            throw new IllegalArgumentException(
+                    "A user with this phone number already exists: " + request.phoneNumber());
+        }
+
         User user = User.builder()
                 .name(request.name())
+                .phoneNumber(request.phoneNumber())
                 .email(request.email())
                 .role(request.role())
                 .status(UserStatus.INVITED)
@@ -114,7 +145,16 @@ public class UserManagementService {
         User user = loadManageableUser(id, account);
         assertCanAssignRole(request.role());
 
+        // Reject a phone number already taken by a different user.
+        userRepository.findByPhoneNumber(request.phoneNumber())
+                .filter(other -> !other.getId().equals(user.getId()))
+                .ifPresent(other -> {
+                    throw new IllegalArgumentException(
+                            "A user with this phone number already exists: " + request.phoneNumber());
+                });
+
         user.setRole(request.role());
+        user.setPhoneNumber(request.phoneNumber());
         userRepository.save(user);
 
         replaceAssignments(user, request.role(), request.propertyIds(), account);

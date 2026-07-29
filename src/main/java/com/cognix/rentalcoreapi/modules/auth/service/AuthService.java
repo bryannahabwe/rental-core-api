@@ -126,14 +126,8 @@ public class AuthService {
     public AuthResponse acceptInvite(AcceptInviteRequest request) {
         User user = loadInvitedUser(request.token());
 
-        if (request.phone() != null && !request.phone().isBlank()) {
-            String phone = request.phone().trim();
-            if (userRepository.existsByPhoneNumber(phone)) {
-                throw new IllegalArgumentException("Phone number already in use");
-            }
-            user.setPhoneNumber(phone);
-        }
-
+        // The phone number is captured (and required) when the invite is sent,
+        // so there's nothing to collect here — the invitee only sets a password.
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setStatus(UserStatus.ACTIVE);
         // Consume the invite: clear the version so the link can't be replayed.

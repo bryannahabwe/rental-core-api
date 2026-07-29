@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.modules.users.controller;
 
 import com.cognix.rentalcoreapi.modules.users.dto.InviteUserRequest;
+import com.cognix.rentalcoreapi.modules.users.dto.UpdateProfileRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UpdateUserRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UserResponse;
 import com.cognix.rentalcoreapi.modules.users.service.UserManagementService;
@@ -26,6 +27,13 @@ public class UserController {
     @GetMapping("/me")
     public ResponseEntity<UserResponse> me() {
         return ResponseEntity.ok(userManagementService.getMe());
+    }
+
+    // Any authenticated user can edit their own name and phone number.
+    @PutMapping("/me")
+    public ResponseEntity<UserResponse> updateMe(
+            @Valid @RequestBody UpdateProfileRequest request) {
+        return ResponseEntity.ok(userManagementService.updateMe(request));
     }
 
     @GetMapping

@@ -12,5 +12,6 @@ public enum AuditAction {
     RESEND_INVITE,
     ACCEPT_INVITE,
     DEACTIVATE,
-    ROLE_CHANGE
+    ROLE_CHANGE,
+    PROFILE_UPDATE
 }

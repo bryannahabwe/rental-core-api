@@ -10,9 +10,6 @@ public record AcceptInviteRequest(
 
         @NotBlank(message = "Password is required")
         @Size(min = 6, message = "Password must be at least 6 characters")
-        String password,
-
-        // Optional — invited staff may add a phone number when accepting.
-        String phone
+        String password
 ) {
 }
