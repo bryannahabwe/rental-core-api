@@ -1,0 +1,616 @@
+<title>Property Manager Guide · RentFlow</title>
+<style>
+  :root {
+    --brand: #0F6E56;
+    --brand-deep: #0a4a38;
+    --brand-bright: #128368;
+    --mint: #E1F5EE;
+    --mint-line: #cfeadf;
+    --paper: #f6f9f8;
+    --card: #ffffff;
+    --line: #e9edeb;
+    --line-soft: #f1f4f3;
+    --ink: #111f1b;
+    --muted: #5c6b66;
+    --faint: #93a19c;
+    --amber-bg: #fef9c3;
+    --amber-ink: #854d0e;
+    --danger-bg: #fef2f2;
+    --danger-ink: #dc2626;
+    --indigo-bg: #eef2ff;
+    --indigo-ink: #4338ca;
+    --shadow: 0 1px 3px rgba(10,74,56,.06), 0 8px 30px rgba(10,74,56,.06);
+    --shadow-soft: 0 1px 2px rgba(10,74,56,.05);
+    --radius: 16px;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --maxw: 1080px;
+    --readw: 720px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand: #34b795;
+      --brand-deep: #d7f2e8;
+      --brand-bright: #43d0aa;
+      --mint: #123027;
+      --mint-line: #1d4a3b;
+      --paper: #0c1512;
+      --card: #111d19;
+      --line: #22322c;
+      --line-soft: #1a2723;
+      --ink: #eaf3ef;
+      --muted: #9fb2ab;
+      --faint: #6d827a;
+      --amber-bg: #3a3111;
+      --amber-ink: #f2cf6b;
+      --danger-bg: #3a1a1a;
+      --danger-ink: #f7a3a3;
+      --indigo-bg: #23264d;
+      --indigo-ink: #b9befb;
+      --shadow: 0 1px 3px rgba(0,0,0,.4), 0 10px 34px rgba(0,0,0,.34);
+      --shadow-soft: 0 1px 2px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --brand: #0F6E56; --brand-deep: #0a4a38; --brand-bright: #128368;
+    --mint: #E1F5EE; --mint-line: #cfeadf; --paper: #f6f9f8; --card: #ffffff;
+    --line: #e9edeb; --line-soft: #f1f4f3; --ink: #111f1b; --muted: #5c6b66; --faint: #93a19c;
+    --amber-bg:#fef9c3; --amber-ink:#854d0e; --danger-bg:#fef2f2; --danger-ink:#dc2626;
+    --indigo-bg:#eef2ff; --indigo-ink:#4338ca;
+    --shadow: 0 1px 3px rgba(10,74,56,.06), 0 8px 30px rgba(10,74,56,.06);
+    --shadow-soft: 0 1px 2px rgba(10,74,56,.05);
+  }
+  :root[data-theme="dark"] {
+    --brand: #34b795; --brand-deep: #d7f2e8; --brand-bright: #43d0aa;
+    --mint: #123027; --mint-line: #1d4a3b; --paper: #0c1512; --card: #111d19;
+    --line: #22322c; --line-soft: #1a2723; --ink: #eaf3ef; --muted: #9fb2ab; --faint: #6d827a;
+    --amber-bg:#3a3111; --amber-ink:#f2cf6b; --danger-bg:#3a1a1a; --danger-ink:#f7a3a3;
+    --indigo-bg:#23264d; --indigo-ink:#b9befb;
+    --shadow: 0 1px 3px rgba(0,0,0,.4), 0 10px 34px rgba(0,0,0,.34);
+    --shadow-soft: 0 1px 2px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  a { color: var(--brand); }
+
+  /* ---- Hero ---- */
+  .hero {
+    background:
+      radial-gradient(1200px 400px at 80% -10%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 60%),
+      linear-gradient(180deg, var(--mint), transparent 70%);
+    border-bottom: 1px solid var(--line);
+  }
+  .hero-inner { padding: 30px 24px 46px; max-width: var(--maxw); margin: 0 auto; }
+  .brandline { display:flex; align-items:center; gap:10px; margin-bottom: 40px; }
+  .logo { font-family: var(--font-serif); font-size: 22px; color: var(--brand-deep); font-weight: 600; letter-spacing:-.01em; }
+  .logo-dot { width:26px;height:26px;border-radius:8px;background:var(--brand);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;font-family:var(--font-sans); }
+  .eyebrow { text-transform: uppercase; letter-spacing: .16em; font-size: 12px; font-weight: 600; color: var(--brand); margin: 0 0 14px; }
+  .hero h1 {
+    font-family: var(--font-serif); font-weight: 600;
+    font-size: clamp(34px, 6vw, 56px); line-height: 1.04; letter-spacing: -.02em;
+    margin: 0 0 18px; color: var(--brand-deep); text-wrap: balance; max-width: 15ch;
+  }
+  .hero p.lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); margin: 0; max-width: 60ch; }
+
+  /* ---- Section rhythm ---- */
+  section.band { padding: 58px 0; border-bottom: 1px solid var(--line-soft); }
+  .sec-head { max-width: var(--readw); margin-bottom: 30px; }
+  .sec-eyebrow { display:flex; align-items:center; gap:10px; text-transform: uppercase; letter-spacing:.14em; font-size:12px; font-weight:700; color: var(--brand); margin-bottom:12px; }
+  .sec-num { font-variant-numeric: tabular-nums; color: var(--faint); font-weight:700; }
+  h2 { font-family: var(--font-serif); font-weight:600; font-size: clamp(26px,3.6vw,34px); letter-spacing:-.015em; color: var(--brand-deep); margin: 0 0 12px; text-wrap: balance; }
+  .sec-head p { margin: 0; color: var(--muted); font-size: 17px; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+  @media (max-width: 860px){ .split { grid-template-columns: 1fr; gap: 28px; } }
+
+  .prose h3 { font-size: 16px; margin: 22px 0 8px; color: var(--ink); letter-spacing:-.01em; }
+  .prose h3:first-child { margin-top: 0; }
+  .prose p { margin: 0 0 12px; color: var(--muted); }
+  .prose ul { margin: 0 0 14px; padding: 0; list-style: none; display:flex; flex-direction:column; gap:9px; }
+  .prose li { position: relative; padding-left: 24px; color: var(--muted); }
+  .prose li::before {
+    content:""; position:absolute; left:2px; top:9px; width:8px; height:8px; border-radius:3px;
+    background: var(--brand); opacity:.85;
+  }
+  .prose strong { color: var(--ink); font-weight: 600; }
+  .k { font-family: var(--font-sans); font-weight:600; color: var(--ink);
+       background: var(--mint); border:1px solid var(--mint-line); border-radius:6px; padding: 1px 7px; font-size: 13px; }
+
+  /* ---- Recreated app screens ---- */
+  .screen {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow); overflow: hidden; position: sticky; top: 20px;
+  }
+  @media (max-width: 860px){ .screen { position: static; } }
+  .screen-bar { display:flex; align-items:center; gap:7px; padding: 11px 14px; border-bottom: 1px solid var(--line-soft); background: color-mix(in srgb, var(--paper) 60%, var(--card)); }
+  .dot { width:10px;height:10px;border-radius:50%; }
+  .dot.r{background:#ef6a5f;} .dot.y{background:#f5bd4f;} .dot.g{background:#61c454;}
+  .screen-url { margin-left:8px; font-size:12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .screen-body { padding: 16px; }
+  .caption { margin-top:12px; font-size: 13px; color: var(--faint); text-align:center; }
+
+  /* App UI primitives (match RentFlow) */
+  .app-title { font-size: 18px; font-weight: 700; color: var(--ink); margin: 0 0 2px; }
+  .app-sub { font-size: 13px; color: var(--faint); margin: 0; }
+  .rowline { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .btn { display:inline-flex; align-items:center; gap:6px; background: var(--brand); color:#fff; border:none; border-radius:9px; padding:8px 14px; font-size:13px; font-weight:600; font-family:inherit; }
+  .btn.ghost { background: var(--card); color: var(--ink); border:1px solid var(--line); }
+  .card-mini { background: var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .avatar { width:38px;height:38px;border-radius:10px;background:var(--mint);display:flex;align-items:center;justify-content:center;color:var(--brand);flex:none;font-weight:700;font-size:14px; }
+  .pill { display:inline-flex; align-items:center; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+  .pill.ok { background: var(--mint); color: var(--brand); }
+  .pill.warn { background: var(--amber-bg); color: var(--amber-ink); }
+  .pill.bad { background: var(--danger-bg); color: var(--danger-ink); }
+  .pill.info { background: var(--indigo-bg); color: var(--indigo-ink); }
+  .muted { color: var(--muted); }
+  .faint { color: var(--faint); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* mini table */
+  table.mini { width:100%; border-collapse: collapse; font-size: 12.5px; }
+  table.mini th { text-align:left; font-weight:600; color: var(--faint); font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:6px 8px; border-bottom:1px solid var(--line); }
+  table.mini td { padding:9px 8px; border-bottom:1px solid var(--line-soft); color: var(--ink); }
+  table.mini tr:last-child td { border-bottom:none; }
+
+  /* scope grid */
+  .scope { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:720px){ .scope{ grid-template-columns:1fr; } }
+  .scope-card { border:1px solid var(--line); border-radius:14px; padding:20px; background: var(--card); box-shadow: var(--shadow-soft); }
+  .scope-card h3 { margin:0 0 14px; font-size:13px; text-transform:uppercase; letter-spacing:.1em; }
+  .scope-card.can h3 { color: var(--brand); }
+  .scope-card.cant h3 { color: var(--faint); }
+  .scope-list { display:flex; flex-direction:column; gap:2px; }
+  .scope-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line-soft); font-size:14.5px; }
+  .scope-item:last-child { border-bottom:none; }
+  .tick { width:20px;height:20px;border-radius:6px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700; }
+  .tick.y { background: var(--mint); color: var(--brand); }
+  .tick.n { background: var(--line); color: var(--faint); }
+  .scope-item.off { color: var(--faint); }
+
+  /* callout */
+  .note { display:flex; gap:12px; padding:16px 18px; border-radius:12px; background: var(--mint); border:1px solid var(--mint-line); }
+  .note .ic { flex:none; width:22px;height:22px;color:var(--brand); }
+  .note p { margin:0; font-size:14.5px; color: var(--ink); }
+  .note strong { color: var(--brand-deep); }
+
+  /* steps */
+  .steps { counter-reset: s; display:flex; flex-direction:column; gap:14px; }
+  .step { display:flex; gap:14px; }
+  .step-n { counter-increment:s; flex:none; width:30px;height:30px;border-radius:9px; background: var(--brand-deep); color:#fff; display:flex;align-items:center;justify-content:center; font-weight:700; font-size:14px; }
+  .step-n::before { content: counter(s); }
+  .step-b { padding-top:3px; }
+  .step-b b { color: var(--ink); }
+  .step-b span { color: var(--muted); }
+
+  footer { padding: 40px 24px 60px; text-align:center; color: var(--faint); font-size: 13px; }
+  footer .logo { font-size:18px; }
+
+  :focus-visible { outline: 2px solid var(--brand-bright); outline-offset: 2px; border-radius: 4px; }
+
+  /* ---- Recreated-screen internals ---- */
+  .s-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+  .field { background: var(--paper); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:12px; color: var(--faint); white-space:nowrap; }
+  .seg { display:inline-flex; background: var(--paper); border:1px solid var(--line); border-radius:9px; padding:3px; gap:2px; }
+  .seg span { padding:5px 9px; font-size:11px; font-weight:600; color: var(--muted); border-radius:7px; }
+  .seg span.on { background: var(--brand); color:#fff; }
+  .toolbar { display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .toolbar .field.grow { flex:1; min-width:120px; }
+  .balance { border-radius:9px; padding:7px 9px; font-size:11px; line-height:1.35; }
+  .balance.ok { background: var(--mint); color: var(--brand); font-weight:600; }
+  .balance.owe { background: var(--danger-bg); color: var(--danger-ink); }
+  .balance .lbl { font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; opacity:.85; }
+  .balance .amt { font-weight:700; font-size:13px; }
+  .bar { height:5px; border-radius:3px; background:#fca5a5; overflow:hidden; margin:4px 0; }
+  .bar > i { display:block; height:100%; background: var(--danger-ink); }
+  .acts { display:flex; gap:5px; justify-content:flex-end; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; color: var(--muted); background: var(--paper); border:1px solid var(--line); border-radius:7px; padding:3px 7px; white-space:nowrap; }
+  .chip.warnact { color: var(--danger-ink); border-color: color-mix(in srgb, var(--danger-ink) 30%, var(--line)); }
+  .drow { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--line-soft); font-size:12.5px; }
+  .drow:last-child { border-bottom:none; }
+  .drow .dl { color: var(--faint); } .drow .dv { color: var(--ink); font-weight:600; text-align:right; }
+  .slabel { font-size:10px; text-transform:uppercase; letter-spacing:.1em; color: var(--faint); font-weight:700; margin:2px 0 6px; }
+  .panel { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+  .banner { border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+  .banner.owe { background: var(--danger-bg); border:1px solid color-mix(in srgb, var(--danger-ink) 30%, transparent); }
+  .stat3 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; background: var(--paper); border-radius:10px; padding:10px; margin-bottom:10px; }
+  .stat3 .lbl{ font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700; }
+  .stat3 .v{ font-size:13px;font-weight:700;color:var(--ink); }
+  .twopills { display:flex; flex-direction:column; gap:3px; align-items:flex-start; }
+
+  /* ---- Action explainers (prose) ---- */
+  .actions { display:flex; flex-direction:column; gap:20px; margin-top:2px; }
+  .act { position:relative; padding-left:18px; }
+  .act::before { content:""; position:absolute; left:0; top:8px; width:8px; height:8px; border-radius:3px; background:var(--brand); }
+  .act .t { font-weight:700; color:var(--ink); font-size:15.5px; letter-spacing:-.01em; margin-bottom:5px; }
+  .act .d { margin:0; color:var(--muted); font-size:15px; }
+  .act .exp { margin-top:7px; font-size:13.5px; color:var(--muted); background:var(--paper); border:1px solid var(--line); border-left:3px solid var(--brand); border-radius:0 8px 8px 0; padding:8px 12px; }
+  .act .exp b { color:var(--brand-deep); font-weight:700; letter-spacing:.01em; }
+  .act ul.sub { list-style:none; margin:8px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  .act ul.sub li { position:relative; padding-left:16px; font-size:14px; color:var(--muted); }
+  .act ul.sub li::before { content:""; position:absolute; left:2px; top:8px; width:5px; height:5px; border-radius:50%; background:var(--faint); }
+  .act ul.sub b, .act .d b { color:var(--ink); font-weight:600; }
+</style>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="brandline"><span class="logo-dot">R</span><span class="logo">RentFlow</span></div>
+    <p class="eyebrow">Property Manager Guide</p>
+    <h1>Everything you can do as a Property Manager.</h1>
+    <p class="lede">You look after the day-to-day on the properties you're assigned — tenants, units, agreements and payments. This guide walks through each screen you'll use and what you can do on it.</p>
+  </div>
+</div>
+
+<main>
+
+<!-- SECTION: Your workspace / scope -->
+<section class="band"><div class="wrap">
+  <div class="sec-head">
+    <div class="sec-eyebrow"><span class="sec-num">00</span> Your workspace</div>
+    <h2>What you can reach — and what stays with the office</h2>
+    <p>When you sign in you're taken straight to <strong>Tenants</strong>, already focused on a property you manage. Your menu is deliberately short: it holds the tools for running a property, and hides account-wide administration.</p>
+  </div>
+  <div class="scope">
+    <div class="scope-card can">
+      <h3>In your menu</h3>
+      <div class="scope-list">
+        <div class="scope-item"><span class="tick y">✓</span> Tenants — the people in your units</div>
+        <div class="scope-item"><span class="tick y">✓</span> Units — the rentable spaces</div>
+        <div class="scope-item"><span class="tick y">✓</span> Agreements — tenancy &amp; billing terms</div>
+        <div class="scope-item"><span class="tick y">✓</span> Payments — record and track rent</div>
+      </div>
+    </div>
+    <div class="scope-card cant">
+      <h3>Handled by owners / admins</h3>
+      <div class="scope-list">
+        <div class="scope-item off"><span class="tick n">–</span> Dashboard &amp; Reports</div>
+        <div class="scope-item off"><span class="tick n">–</span> Properties</div>
+        <div class="scope-item off"><span class="tick n">–</span> Users &amp; Activity log</div>
+        <div class="scope-item off"><span class="tick n">–</span> Settings</div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:22px" class="note">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M6 21V9l6-4 6 4v12M10 21v-5h4v5"/></svg>
+    <p><strong>Managing more than one property?</strong> Use the property switcher at the top of the menu to move between the properties assigned to you. Everything on every screen — tenants, units, payments — reflects the property you've selected.</p>
+  </div>
+</div></section>
+
+<!-- 01 Tenants -->
+<section class="band"><div class="wrap">
+  <div class="sec-head">
+    <div class="sec-eyebrow"><span class="sec-num">01</span> Tenants</div>
+    <h2>The people in your units — and exactly what they owe</h2>
+    <p>Your home screen. Every tenant on the selected property is listed here, with their current balance already worked out for you.</p>
+  </div>
+  <div class="split">
+    <div class="prose">
+      <h3>What you can do</h3>
+      <div class="actions">
+        <div class="act">
+          <div class="t">Add a tenant</div>
+          <p class="d"><span class="k">+ Add Tenant</span> records a person — name, phone, email and (optionally) address.</p>
+          <div class="exp"><b>What to expect:</b> they show up in the list immediately, but with <b>no unit, rent or balance</b> — a tenant is just a contact until you link them to a unit with an <b>Agreement</b> (section 04). Until then their row reads “No agreement”.</div>
+        </div>
+        <div class="act">
+          <div class="t">Search &amp; filter</div>
+          <p class="d">Type in the search box (name, phone or email), or tap <span class="k">PAID</span> / <span class="k">PARTIAL</span> / <span class="k">UNPAID</span> to narrow by payment state.</p>
+          <div class="exp"><b>What to expect:</b> the list filters as you type; a <b>Clear</b> button appears to reset it. Long lists page with “Page N of M”.</div>
+        </div>
+        <div class="act">
+          <div class="t">Read the balance</div>
+          <p class="d">Every tenant shows a green <b>“Fully paid up”</b> or a red <b>“Outstanding”</b> bar with the amount owed and how far they've paid.</p>
+          <div class="exp"><b>What to expect:</b> when someone owes, the amount is split into <b>historical arrears</b> (what they brought in from before) and <b>current cycles</b> — so you can tell “behind from before” apart from “behind this month”.</div>
+        </div>
+        <div class="act">
+          <div class="t">Open a tenant / View</div>
+          <p class="d">Tap any row, or <span class="k">View</span>, to open their full page.</p>
+          <div class="exp"><b>What to expect:</b> contact details plus their complete ledger — see the next section.</div>
+        </div>
+        <div class="act">
+          <div class="t">Ledger</div>
+          <p class="d"><span class="k">Ledger</span> jumps straight to a tenant's transactions &amp; arrears.</p>
+          <div class="exp"><b>What to expect:</b> a read-only history — opening it changes nothing.</div>
+        </div>
+        <div class="act">
+          <div class="t">Edit a tenant</div>
+          <p class="d"><span class="k">Edit</span> corrects the tenant's name, phone or email.</p>
+          <div class="exp"><b>What to expect:</b> contact details only. Their unit, rent and balance are driven by the agreement, not edited here.</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:20px">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+        <p><strong>Removing a tenant record</strong> is reserved for the account owner, so there's no delete button on your view — ask your owner or admin if something needs deleting.</p>
+      </div>
+    </div>
+    <div>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="screen-url">RentFlow · Tenants</span></div>
+        <div class="screen-body">
+          <div class="s-head"><p class="app-title">Tenants</p><span class="btn">+ Add Tenant</span></div>
+          <div class="toolbar">
+            <span class="field grow">Search by name, phone or email…</span>
+            <span class="seg"><span class="on">All</span><span>PAID</span><span>PARTIAL</span><span>UNPAID</span></span>
+          </div>
+          <div style="overflow-x:auto">
+          <table class="mini">
+            <thead><tr><th>Name</th><th>Unit</th><th>Expected</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td><b>Jane Namukasa</b><div class="faint" style="font-size:11px">0772 114 880</div></td>
+                <td>A1</td><td class="num">UGX 850,000</td>
+                <td><div class="balance ok">✓ Fully paid up</div></td>
+                <td><span class="pill ok">PAID</span></td>
+                <td><div class="acts"><span class="chip">View</span><span class="chip">Edit</span></div></td>
+              </tr>
+              <tr>
+                <td><b>Moses Okello</b><div class="faint" style="font-size:11px">0701 233 190</div></td>
+                <td>B3</td><td class="num">UGX 650,000</td>
+                <td><div class="balance owe"><span class="lbl">Outstanding</span><div class="amt num">UGX 300,000</div><div class="bar"><i style="width:54%"></i></div><span style="font-size:10px">Paid 350,000 / of 650,000</span></div></td>
+                <td><span class="pill warn">PARTIAL</span></td>
+                <td><div class="acts"><span class="chip">Ledger</span><span class="chip">Edit</span></div></td>
+              </tr>
+              <tr>
+                <td><b>Sarah Nakintu</b><div class="faint" style="font-size:11px">0784 552 017</div></td>
+                <td>C2</td><td class="num">UGX 700,000</td>
+                <td><div class="balance owe"><span class="lbl">Outstanding</span><div class="amt num">UGX 700,000</div><div class="bar"><i style="width:3%"></i></div><span style="font-size:10px">Paid 0 / of 700,000</span></div></td>
+                <td><span class="pill bad">UNPAID</span></td>
+                <td><div class="acts"><span class="chip">View</span><span class="chip">Edit</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Tenants list — balances computed per tenant. No delete button (owner-only).</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- 02 Tenant details -->
+<section class="band"><div class="wrap">
+  <div class="sec-head">
+    <div class="sec-eyebrow"><span class="sec-num">02</span> Tenant details</div>
+    <h2>One tenant, the full picture</h2>
+    <p>Opening a tenant shows their contact details, their current tenancy, and a complete money trail — every billing cycle and every payment.</p>
+  </div>
+  <div class="split">
+    <div class="prose">
+      <h3>What's on the page</h3>
+      <p class="muted" style="margin-top:-4px">This page answers one question — “has this tenant paid, and for which months?” — without you doing any maths.</p>
+      <div class="actions">
+        <div class="act">
+          <div class="t">Contact</div>
+          <p class="d">Phone, email and address on file for the tenant.</p>
+        </div>
+        <div class="act">
+          <div class="t">Current tenancy</div>
+          <p class="d">The live agreement in summary: unit, monthly rent, the current billing period, and what's outstanding.</p>
+          <div class="exp"><b>What to expect:</b> “Outstanding” shows red with an amount when they're behind, or a green <b>“Paid up”</b> when they're clear — mirrored by the status pill.</div>
+        </div>
+        <div class="act">
+          <div class="t">Ledger &amp; arrears</div>
+          <p class="d">The full money trail: an arrears banner, totals (expected / paid / outstanding), every <b>billing cycle</b>, and every <b>transaction</b> (date, amount, period, method, source, reference).</p>
+          <div class="exp"><b>What to expect:</b> cycles that aren't due yet are greyed “not yet due”; overdue cycles are flagged red; a payment that overpaid shows an “X applied · Y rolled over” note. It's a record — you add money from the <b>Payments</b> screen, not here.</div>
+        </div>
+        <div class="act">
+          <div class="t">Edit</div>
+          <p class="d">The header <span class="k">Edit</span> updates the same contact details as the list.</p>
+          <div class="exp"><b>What to expect:</b> name and email are managed here as contact info; rent and tenancy come from the agreement.</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="screen-url">RentFlow · Tenants › Moses Okello</span></div>
+        <div class="screen-body">
+          <div class="s-head" style="align-items:center">
+            <div style="display:flex;gap:10px;align-items:center"><span class="avatar" style="background:var(--brand-deep);color:#fff">MO</span><div><p class="app-title">Moses Okello</p><p class="app-sub">0701 233 190</p></div></div>
+            <span class="chip">Edit</span>
+          </div>
+          <div class="panel" style="margin-top:12px">
+            <div class="slabel">Current tenancy</div>
+            <div class="drow"><span class="dl">Unit</span><span class="dv">B3</span></div>
+            <div class="drow"><span class="dl">Monthly rent</span><span class="dv num">UGX 650,000</span></div>
+            <div class="drow"><span class="dl">Period</span><span class="dv">1 Jul – 31 Jul</span></div>
+            <div class="drow"><span class="dl">Outstanding</span><span class="dv" style="color:var(--danger-ink)">UGX 300,000</span></div>
+            <div class="drow"><span class="dl">Account status</span><span class="dv"><span class="pill warn">PARTIAL</span></span></div>
+          </div>
+          <div class="banner owe"><div class="slabel" style="color:var(--danger-ink);margin:0 0 3px">In arrears</div><div class="num" style="font-size:20px;font-weight:800;color:var(--danger-ink)">UGX 300,000</div><span class="chip warnact" style="margin-top:6px">1 cycle overdue</span></div>
+          <div class="stat3"><div><div class="lbl">Expected</div><div class="v num">650,000</div></div><div><div class="lbl">Paid</div><div class="v num">350,000</div></div><div><div class="lbl">Outstanding</div><div class="v num" style="color:var(--danger-ink)">300,000</div></div></div>
+          <div class="slabel">Transaction history</div>
+          <table class="mini">
+            <thead><tr><th>Date</th><th>Amount</th><th>Period</th><th>Method</th></tr></thead>
+            <tbody><tr><td>12 Jul</td><td class="num">UGX 350,000</td><td>Jul</td><td><span class="pill info">CASH</span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <p class="caption">Tenant detail — contact, tenancy and the ledger, all on one page.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- 03 Units -->
+<section class="band"><div class="wrap">
+  <div class="sec-head">
+    <div class="sec-eyebrow"><span class="sec-num">03</span> Units</div>
+    <h2>The rentable spaces on your property</h2>
+    <p>Every room or unit, its monthly rent, and whether it's available or occupied.</p>
+  </div>
+  <div class="split">
+    <div class="prose">
+      <h3>What you can do</h3>
+      <div class="actions">
+        <div class="act">
+          <div class="t">Add a unit</div>
+          <p class="d"><span class="k">+ Add Unit</span> creates a rentable space — room number, monthly rent, an optional description, and an <b>“Available for rent”</b> switch.</p>
+          <div class="exp"><b>What to expect:</b> only units marked <b>Available</b> can be chosen when you create an agreement, and the rent you set here <b>pre-fills</b> that agreement's rent (you can still override it).</div>
+        </div>
+        <div class="act">
+          <div class="t">Search &amp; filter</div>
+          <p class="d">Search by room number, or filter <span class="k">Available</span> / <span class="k">Occupied</span>.</p>
+        </div>
+        <div class="act">
+          <div class="t">Edit a unit</div>
+          <p class="d"><span class="k">Edit</span> updates the rent, description or availability.</p>
+          <div class="exp"><b>What to expect:</b> you rarely need to flip availability yourself — creating an agreement marks a unit <b>Occupied</b> automatically, and recording a move-out sets it back to <b>Available</b>.</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:20px">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+        <p><strong>Deleting a unit</strong> is owner-only, so there's no delete button on your view.</p>
+      </div>
+    </div>
+    <div>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="screen-url">RentFlow · Units</span></div>
+        <div class="screen-body">
+          <div class="s-head"><p class="app-title">Units</p><span class="btn">+ Add Unit</span></div>
+          <div class="toolbar"><span class="field grow">Search by room number…</span><span class="seg"><span class="on">All</span><span>Available</span><span>Occupied</span></span></div>
+          <table class="mini">
+            <thead><tr><th>Room</th><th>Rent / Month</th><th>Description</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><b>A1</b></td><td class="num">UGX 850,000</td><td class="faint">2-bed, balcony</td><td><span class="pill bad">Occupied</span></td><td><div class="acts"><span class="chip">Edit</span></div></td></tr>
+              <tr><td><b>B3</b></td><td class="num">UGX 650,000</td><td class="faint">1-bed</td><td><span class="pill bad">Occupied</span></td><td><div class="acts"><span class="chip">Edit</span></div></td></tr>
+              <tr><td><b>C2</b></td><td class="num">UGX 700,000</td><td class="faint">1-bed, ensuite</td><td><span class="pill ok">Available</span></td><td><div class="acts"><span class="chip">Edit</span></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="caption">Units — availability at a glance. Delete is owner-only.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- 04 Agreements -->
+<section class="band"><div class="wrap">
+  <div class="sec-head">
+    <div class="sec-eyebrow"><span class="sec-num">04</span> Agreements</div>
+    <h2>Who rents what, on which terms</h2>
+    <p>An agreement links a tenant to a unit and sets the rent, the billing model and the move-in date. It's what every ledger is built on.</p>
+  </div>
+  <div class="split">
+    <div class="prose">
+      <h3>What you can do</h3>
+      <div class="actions">
+        <div class="act">
+          <div class="t">Create a new agreement</div>
+          <p class="d"><span class="k">+ New Agreement</span> links a tenant to an available unit and <b>starts the billing clock</b>. You choose new vs existing tenant, the unit and rent (pre-filled from the unit), the billing model, the move-in date, and an optional deposit.</p>
+          <div class="exp"><b>What to expect:</b> the unit is marked <b>Occupied</b>, and rent is billed on the same day each month as the move-in date — move in on the 5th → due on the 5th (any day after the 28th bills on the 28th).</div>
+          <ul class="sub">
+            <li><b>Advance vs Arrears</b> — Advance means rent is due at the <b>start</b> of each cycle; Arrears means it's due at the <b>end</b>.</li>
+            <li><b>Existing tenant → Opening balance</b> — if they're joining mid-history, set how much they've <b>paid ahead (+)</b> or <b>owe in arrears (−)</b> so their ledger starts from the truth instead of zero.</li>
+          </ul>
+        </div>
+        <div class="act">
+          <div class="t">Edit an agreement</div>
+          <p class="d"><span class="k">Edit</span> adjusts the rent, billing day, deposit or opening balance.</p>
+          <div class="exp"><b>What to expect:</b> changes shape how upcoming cycles are billed — use it to correct a rent or fix a starting balance.</div>
+        </div>
+        <div class="act">
+          <div class="t">Record a move-out</div>
+          <p class="d"><span class="k">Move-out</span> ends a tenancy — you pick the move-out date (it can't be before the move-in date).</p>
+          <div class="exp"><b>What to expect:</b> the agreement becomes <b>Terminated</b>, the unit is freed back to <b>Available</b>, and <b>no further payments</b> can be recorded against it.</div>
+        </div>
+        <div class="act">
+          <div class="t">Filter &amp; search</div>
+          <p class="d">Switch between <span class="k">Active</span> / <span class="k">Terminated</span> / <span class="k">All</span>, or search by tenant or unit.</p>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="screen-url">RentFlow · Agreements</span></div>
+        <div class="screen-body">
+          <div class="s-head"><p class="app-title">Agreements</p><span class="btn">+ New Agreement</span></div>
+          <div class="toolbar"><span class="field grow">Search by tenant or unit…</span><span class="seg"><span class="on">Active</span><span>Terminated</span><span>All</span></span></div>
+          <div style="overflow-x:auto">
+          <table class="mini">
+            <thead><tr><th>Tenant</th><th>Unit</th><th>Billing</th><th>Rent / mo</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><b>Jane Namukasa</b></td><td>A1</td><td><div class="twopills"><span class="pill warn">EXISTING</span><span class="pill" style="background:var(--paper);color:var(--muted)">ADVANCE</span></div></td><td class="num">UGX 850,000</td><td><span class="pill ok">Active</span></td><td><div class="acts"><span class="chip">Edit</span><span class="chip warnact">Move-out</span></div></td></tr>
+              <tr><td><b>Moses Okello</b></td><td>B3</td><td><div class="twopills"><span class="pill info">NEW</span><span class="pill" style="background:var(--paper);color:var(--muted)">ARREARS</span></div></td><td class="num">UGX 650,000</td><td><span class="pill ok">Active</span></td><td><div class="acts"><span class="chip">Edit</span><span class="chip warnact">Move-out</span></div></td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Agreements — tenant type &amp; billing model shown on every row.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- 05 Payments -->
+<section class="band"><div class="wrap">
+  <div class="sec-head">
+    <div class="sec-eyebrow"><span class="sec-num">05</span> Payments</div>
+    <h2>Record rent and hand out receipts</h2>
+    <p>Log every payment against the right billing cycle, and generate a receipt on the spot.</p>
+  </div>
+  <div class="split">
+    <div class="prose">
+      <h3>What you can do</h3>
+      <div class="actions">
+        <div class="act">
+          <div class="t">Record a payment</div>
+          <p class="d"><span class="k">+ Record Payment</span>: choose the tenant/agreement, pick the <b>billing cycle</b> (the earliest unpaid month is pre-selected for you), enter the amount, and save.</p>
+          <div class="exp"><b>What to expect</b> depends on the amount:</div>
+          <ul class="sub">
+            <li>Pay the <b>full rent</b> → the cycle turns <b>PAID</b>.</li>
+            <li>Pay <b>less</b> → the cycle is <b>PARTIAL</b> and the shortfall stays as their outstanding balance.</li>
+            <li>Pay <b>more</b> → the extra <b>rolls over automatically</b> onto the next cycle(s) as a <b>ROLLOVER</b> credit — you'll see “X applied · Y rolled over”.</li>
+            <li>A <b>receipt is generated</b> that you can download right away.</li>
+          </ul>
+          <div class="exp" style="margin-top:9px">A <b>terminated</b> agreement can't take payments — record everything before you move a tenant out.</div>
+        </div>
+        <div class="act">
+          <div class="t">Write a manual receipt</div>
+          <p class="d">The <span class="k">Manual Receipt</span> tab produces a standalone receipt for a one-off — e.g. a cash handover you just need a document for — in a <b>Digital</b> (clean, branded) or <b>Formal</b> (receipt-book) style.</p>
+          <div class="exp"><b>What to expect:</b> you type the details (tenant, amount, optional period and balance) and get a downloadable receipt; it's for documenting, separate from the cycle-tracking flow above.</div>
+        </div>
+        <div class="act">
+          <div class="t">Find a payment</div>
+          <p class="d">Search by tenant, unit or reference, or narrow with the <b>From / To</b> date range.</p>
+        </div>
+        <div class="act">
+          <div class="t">Download a receipt</div>
+          <p class="d"><span class="k">Receipt</span> on any row re-opens that payment and lets you download its receipt again.</p>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:18px">Everything on this screen is available to you — no owner sign-off needed.</p>
+    </div>
+    <div>
+      <div class="screen">
+        <div class="screen-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="screen-url">RentFlow · Payments</span></div>
+        <div class="screen-body">
+          <div class="s-head"><p class="app-title">Payments</p><span class="btn">+ Record Payment</span></div>
+          <div class="toolbar"><span class="field grow">Search by tenant, unit or reference…</span><span class="field">From</span><span class="faint">→</span><span class="field">To</span></div>
+          <div style="overflow-x:auto">
+          <table class="mini">
+            <thead><tr><th>Tenant</th><th>Period</th><th>Amount</th><th>Status</th><th>Date</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><b>Jane Namukasa</b><div class="faint" style="font-size:11px">Unit A1</div></td><td>Jul</td><td class="num">UGX 850,000</td><td><span class="pill ok">PAID</span></td><td>03 Jul</td><td><div class="acts"><span class="chip">Receipt</span></div></td></tr>
+              <tr><td><b>Moses Okello</b><div class="faint" style="font-size:11px">Unit B3</div></td><td>Jul</td><td class="num">UGX 350,000</td><td><span class="pill warn">PARTIAL</span></td><td>12 Jul</td><td><div class="acts"><span class="chip">Receipt</span></div></td></tr>
+              <tr><td><b>David Ssemwogerere</b><div class="faint" style="font-size:11px">Unit D4</div></td><td>Jul<div style="color:var(--indigo-ink);font-size:10px">700,000 applied · 100,000 rolled over</div></td><td class="num">UGX 800,000</td><td><span class="pill info">ROLLOVER</span></td><td>05 Jul</td><td><div class="acts"><span class="chip">Receipt</span></div></td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Payments — status per cycle, with automatic roll-over of overpayments.</p>
+    </div>
+  </div>
+</div></section>
+
+</main>
+
+<footer>
+  <div class="brandline" style="justify-content:center;margin-bottom:8px"><span class="logo-dot">R</span><span class="logo">RentFlow</span></div>
+  Property Manager Guide · for staff managing assigned properties
+</footer>
