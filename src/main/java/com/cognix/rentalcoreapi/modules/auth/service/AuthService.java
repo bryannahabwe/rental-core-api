@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -92,12 +93,17 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.username(),
-                        request.password()
-                )
-        );
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.username(),
+                            request.password()
+                    )
+            );
+        } catch (AuthenticationException e) {
+            recordFailedLogin(request.username());
+            throw e;
+        }
 
         User user = userRepository.findByUsername(request.username())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
@@ -150,6 +156,24 @@ public class AuthService {
                 "%s accepted their invitation and joined.".formatted(user.getName()));
 
         return buildAuthResponse(user);
+    }
+
+    /**
+     * Records a rejected sign-in attempt — wrong password, or an account that is
+     * still invited or deactivated. Written in its own transaction because the
+     * login transaction is about to roll back on the rethrown exception.
+     *
+     * <p>Only attempts against a known username are recorded: an audit row must
+     * belong to an account to be readable, and an unrecognised username belongs
+     * to none. Repeated rows for one user are the point, not noise — that pattern
+     * is what makes a brute-force attempt visible.
+     */
+    private void recordFailedLogin(String username) {
+        userRepository.findByUsername(username).ifPresent(user ->
+                auditWriter.recordIndependently(
+                        AuditModule.AUTHENTICATION, AuditAction.LOGIN_FAILED,
+                        user.getAccountOwnerId(), user.getId(), user.getName(), null, username,
+                        "Failed sign-in attempt for %s.".formatted(user.getName())));
     }
 
     private User loadInvitedUser(String token) {

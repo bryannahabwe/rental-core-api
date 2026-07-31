@@ -9,5 +9,6 @@ public enum AuditModule {
     PROPERTY,
     USER,
     SETTINGS,
+    REPORT,
     AUTHENTICATION
 }

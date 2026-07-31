@@ -7,6 +7,8 @@ import com.cognix.rentalcoreapi.modules.audit.repository.AuditTrailRepository;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -49,5 +51,21 @@ public class AuditWriter {
                 .affectedRecordId(affectedRecordId)
                 .statement(statement)
                 .build());
+    }
+
+    /**
+     * Records an action in its own transaction, so the row survives even when the
+     * caller's transaction rolls back. For events that describe a *failure* — a
+     * rejected login, say — where joining the caller would discard the very row
+     * being written. Never use this for successful business actions: the audit
+     * row would outlive a rolled-back change and claim something that didn't
+     * happen.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordIndependently(AuditModule module, AuditAction action,
+                                    UUID accountId, UUID actingUserId, String actingUserName,
+                                    UUID propertyId, String affectedRecordId, String statement) {
+        record(module, action, accountId, actingUserId, actingUserName,
+                propertyId, affectedRecordId, statement);
     }
 }

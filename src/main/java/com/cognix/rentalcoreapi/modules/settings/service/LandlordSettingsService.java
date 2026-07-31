@@ -135,6 +135,11 @@ public class LandlordSettingsService {
         settings.setNextReceiptNo(number + 1);
         settingsRepository.save(settings);
 
+        // Every issued number is recorded so the receipt sequence can be
+        // reconciled — a gap or a re-issue has someone's name against it.
+        auditWriter.record(AuditModule.SETTINGS, AuditAction.ISSUE_RECEIPT, null, formatted,
+                "%s issued receipt number %s.".formatted(JwtUtils.getCurrentUserName(), formatted));
+
         return formatted;
     }
 

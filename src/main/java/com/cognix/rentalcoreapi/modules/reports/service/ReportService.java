@@ -2,6 +2,9 @@ package com.cognix.rentalcoreapi.modules.reports.service;
 
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
+import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
+import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.modules.reports.dto.MonthlyCollectionResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.OccupancyReportResponse;
@@ -30,6 +33,7 @@ public class ReportService {
     private final TenantRepository tenantRepository;
     private final RentalAgreementRepository agreementRepository;
     private final PaymentRepository paymentRepository;
+    private final AuditWriter auditWriter;
 
     public SummaryResponse getSummary() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
@@ -82,6 +86,15 @@ public class ReportService {
 
         BigDecimal totalAmount = paymentRepository.sumAmountByLandlordIdAndDateRange(
                 landlordId, propertyId, from, to);
+
+        // The one report read worth recording: it's the deliberate "pull the
+        // figures for this period" action, and the row states what was
+        // disclosed. The monthly-collection chart is the same data over the same
+        // range, and /summary and /occupancy are dashboard tiles fetched on every
+        // page load — logging those would bury the trail without adding a fact.
+        auditWriter.record(AuditModule.REPORT, AuditAction.VIEW_REPORT, propertyId, null,
+                "%s viewed the payment report for %s → %s (%d payments, %s).".formatted(
+                        JwtUtils.getCurrentUserName(), from, to, totalPayments, totalAmount));
 
         return new PaymentReportResponse(from, to, totalPayments, totalAmount);
     }
