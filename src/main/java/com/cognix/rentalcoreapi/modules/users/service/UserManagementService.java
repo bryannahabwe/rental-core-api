@@ -3,11 +3,13 @@ package com.cognix.rentalcoreapi.modules.users.service;
 import com.cognix.rentalcoreapi.modules.auth.model.User;
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 import com.cognix.rentalcoreapi.modules.auth.model.UserStatus;
+import com.cognix.rentalcoreapi.modules.audit.AuditDiff;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.notification.EmailService;
+import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.users.dto.InviteUserRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UpdateProfileRequest;
@@ -26,9 +28,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -73,12 +77,19 @@ public class UserManagementService {
                             "A user with this phone number already exists: " + request.phoneNumber());
                 });
 
+        List<String> changes = new ArrayList<>();
+        AuditDiff.diff(changes, "name", me.getName(), request.name());
+        AuditDiff.diff(changes, "phone", me.getPhoneNumber(), request.phoneNumber());
+
         me.setName(request.name());
         me.setPhoneNumber(request.phoneNumber());
         userRepository.save(me);
 
-        auditWriter.record(AuditModule.USER, AuditAction.PROFILE_UPDATE, null, me.getName(),
-                "%s updated their profile.".formatted(me.getName()));
+        if (!changes.isEmpty()) {
+            auditWriter.record(AuditModule.USER, AuditAction.PROFILE_UPDATE, null, me.getName(),
+                    "%s updated their profile: %s.".formatted(
+                            me.getName(), String.join("; ", changes)));
+        }
 
         return toResponse(me);
     }
@@ -113,8 +124,9 @@ public class UserManagementService {
         sendInviteEmail(user, account);
 
         auditWriter.record(AuditModule.USER, AuditAction.INVITE, null, user.getEmail(),
-                "%s invited %s as %s.".formatted(
-                        JwtUtils.getCurrentUserName(), user.getEmail(), labelFor(request.role())));
+                "%s invited %s as %s with access to %s.".formatted(
+                        JwtUtils.getCurrentUserName(), user.getEmail(), labelFor(request.role()),
+                        describeAssignments(request.role(), user.getId())));
 
         return toResponse(user);
     }
@@ -157,15 +169,35 @@ public class UserManagementService {
                             "A user with this phone number already exists: " + request.phoneNumber());
                 });
 
+        // Capture what changed before the setters run — the property assignments
+        // included, since which properties a manager can reach is a permissions
+        // change and belongs in the trail as plainly as the role.
+        UserRole previousRole = user.getRole();
+        List<String> changes = new ArrayList<>();
+        AuditDiff.diff(changes, "role", labelFor(previousRole), labelFor(request.role()));
+        AuditDiff.diff(changes, "phone", user.getPhoneNumber(), request.phoneNumber());
+        String assignmentsBefore = describeAssignments(previousRole, user.getId());
+
         user.setRole(request.role());
         user.setPhoneNumber(request.phoneNumber());
         userRepository.save(user);
 
         replaceAssignments(user, request.role(), request.propertyIds(), account);
 
-        auditWriter.record(AuditModule.USER, AuditAction.ROLE_CHANGE, null, user.getName(),
-                "%s updated user %s (now %s).".formatted(
-                        JwtUtils.getCurrentUserName(), user.getName(), labelFor(request.role())));
+        AuditDiff.diff(changes, "property access",
+                assignmentsBefore, describeAssignments(request.role(), user.getId()));
+
+        if (!changes.isEmpty()) {
+            // A role change is the material event for a permissions audit;
+            // anything else is a plain edit.
+            AuditAction action = previousRole != request.role()
+                    ? AuditAction.ROLE_CHANGE
+                    : AuditAction.UPDATE;
+            auditWriter.record(AuditModule.USER, action, null, user.getName(),
+                    "%s updated user %s: %s.".formatted(
+                            JwtUtils.getCurrentUserName(), user.getName(),
+                            String.join("; ", changes)));
+        }
 
         return toResponse(user);
     }
@@ -285,6 +317,25 @@ public class UserManagementService {
                     .propertyId(propertyId)
                     .build());
         }
+    }
+
+    /**
+     * A user's property access as an audit-readable phrase: property names for a
+     * manager, "all properties" for account-wide roles. Names are sorted so the
+     * before/after comparison doesn't fire on row ordering alone.
+     */
+    private String describeAssignments(UserRole role, UUID userId) {
+        if (role != UserRole.PROPERTY_MANAGER) {
+            return "all properties";
+        }
+        List<UUID> propertyIds = assignmentRepository.findPropertyIdsByUserId(userId);
+        if (propertyIds.isEmpty()) {
+            return "no properties";
+        }
+        return propertyRepository.findAllById(propertyIds).stream()
+                .map(Property::getName)
+                .sorted()
+                .collect(Collectors.joining(", "));
     }
 
     private static String labelFor(UserRole role) {

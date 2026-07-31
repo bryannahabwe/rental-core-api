@@ -8,5 +8,6 @@ public enum AuditModule {
     PAYMENT,
     PROPERTY,
     USER,
+    SETTINGS,
     AUTHENTICATION
 }

@@ -7,6 +7,7 @@ public enum AuditAction {
     DELETE,
     MOVE_OUT,
     RECORD_PAYMENT,
+    REGISTER,
     LOGIN,
     INVITE,
     RESEND_INVITE,

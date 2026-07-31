@@ -25,6 +25,9 @@ public class AuditService {
             String search, LocalDate from, LocalDate to) {
 
         UUID accountId = JwtUtils.getCurrentLandlordId();
+        // Scope to the property selected in the header; empty ("All properties")
+        // means landlord-wide. Account-level events are included either way.
+        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
         // Substitute wide bounds when unset so the query needs no nullable-date
         // guard (Postgres can't type-infer a bare `:from IS NULL`).
         LocalDateTime fromTs = from != null ? from.atStartOfDay()
@@ -33,7 +36,7 @@ public class AuditService {
                 : LocalDateTime.of(9999, 12, 31, 23, 59, 59);
 
         return PagedResponse.from(auditTrailRepository
-                .findFeed(accountId, module, action, search, fromTs, toTs, pageable)
+                .findFeed(accountId, propertyId, module, action, search, fromTs, toTs, pageable)
                 .map(AuditEntryResponse::from));
     }
 }

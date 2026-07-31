@@ -72,10 +72,20 @@ public class AuthService {
         String propertyName = request.propertyName() != null && !request.propertyName().isBlank()
                 ? request.propertyName().trim()
                 : "My Property";
-        propertyRepository.save(Property.builder()
+        Property property = propertyRepository.save(Property.builder()
                 .landlord(user)
                 .name(propertyName)
                 .build());
+
+        // Explicit actor: there is no security context during registration.
+        auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.REGISTER,
+                accountId, user.getId(), user.getName(), null, user.getUsername(),
+                "%s created the account.".formatted(user.getName()));
+        // The default property is created for them, so record it like any other
+        // property creation — otherwise it appears in the app from nowhere.
+        auditWriter.record(AuditModule.PROPERTY, AuditAction.CREATE,
+                accountId, user.getId(), user.getName(), property.getId(), property.getName(),
+                "%s created property %s.".formatted(user.getName(), property.getName()));
 
         return buildAuthResponse(user);
     }

@@ -14,7 +14,11 @@ import java.util.UUID;
 
 public interface AuditTrailRepository extends JpaRepository<AuditTrail, UUID> {
 
+    // Property filter is optional (:propertyId IS NULL → all properties).
+    // Account-level rows (property_id IS NULL — logins, invites, settings) always
+    // survive the filter: they belong to every property view, not to none.
     @Query("SELECT a FROM AuditTrail a WHERE a.accountId = :accountId AND " +
+            "(:propertyId IS NULL OR a.propertyId IS NULL OR a.propertyId = :propertyId) AND " +
             "(:module IS NULL OR a.module = :module) AND " +
             "(:action IS NULL OR a.action = :action) AND " +
             "(:search IS NULL OR " +
@@ -24,6 +28,7 @@ public interface AuditTrailRepository extends JpaRepository<AuditTrail, UUID> {
             "ORDER BY a.createdAt DESC")
     Page<AuditTrail> findFeed(
             @Param("accountId") UUID accountId,
+            @Param("propertyId") UUID propertyId,
             @Param("module") AuditModule module,
             @Param("action") AuditAction action,
             @Param("search") String search,
