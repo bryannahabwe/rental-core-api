@@ -96,29 +96,22 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("to") LocalDate to);
 
     // ── Search + filter ─────────────────────────────────────
+    // `from` and `to` are independently optional, like every other filter here.
+    // They used to live in a separate findAllWithFiltersAndDates query that the
+    // service only reached when BOTH bounds were supplied, so a one-sided range
+    // was silently dropped and the caller got unfiltered results with no error.
     @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
             "(:propertyId IS NULL OR p.property.id = :propertyId) AND " +
             "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
             "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +
+            // CAST(...) is required: comparing a bare parameter to NULL leaves
+            // Hibernate unable to infer its type, which fails the query. Same
+            // treatment :search already needs below.
+            "(CAST(:from AS date) IS NULL OR p.paymentDate >= :from) AND " +
+            "(CAST(:to AS date) IS NULL OR p.paymentDate <= :to) AND " +
             "(:search IS NULL OR LOWER(p.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
             "LOWER(p.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))")
     Page<Payment> findAllWithFilters(
-            @Param("landlordId") UUID landlordId,
-            @Param("propertyId") UUID propertyId,
-            @Param("tenantId") UUID tenantId,
-            @Param("agreementId") UUID agreementId,
-            @Param("search") String search,
-            Pageable pageable
-    );
-
-    @Query("SELECT p FROM Payment p WHERE p.landlord.id = :landlordId AND " +
-            "(:propertyId IS NULL OR p.property.id = :propertyId) AND " +
-            "(:tenantId IS NULL OR p.tenant.id = :tenantId) AND " +
-            "(:agreementId IS NULL OR p.agreement.id = :agreementId) AND " +
-            "(:search IS NULL OR LOWER(p.tenant.name) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')) OR " +
-            "LOWER(p.unit.roomNumber) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))) AND " +
-            "p.paymentDate >= :from AND p.paymentDate <= :to")
-    Page<Payment> findAllWithFiltersAndDates(
             @Param("landlordId") UUID landlordId,
             @Param("propertyId") UUID propertyId,
             @Param("tenantId") UUID tenantId,

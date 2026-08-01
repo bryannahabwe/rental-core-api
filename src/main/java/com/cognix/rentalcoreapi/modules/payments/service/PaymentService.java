@@ -44,14 +44,11 @@ public class PaymentService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
-        Page<Payment> page;
-        if (from != null && to != null) {
-            page = paymentRepository.findAllWithFiltersAndDates(
-                    landlordId, propertyId, tenantId, agreementId, search, from, to, pageable);
-        } else {
-            page = paymentRepository.findAllWithFilters(
-                    landlordId, propertyId, tenantId, agreementId, search, pageable);
-        }
+        // `from` and `to` are each honoured on their own. The previous
+        // both-or-nothing branch meant a half-specified range was silently
+        // ignored and the caller got every row back with no indication why.
+        Page<Payment> page = paymentRepository.findAllWithFilters(
+                landlordId, propertyId, tenantId, agreementId, search, from, to, pageable);
 
         return PagedResponse.from(page.map(PaymentResponse::from));
     }
