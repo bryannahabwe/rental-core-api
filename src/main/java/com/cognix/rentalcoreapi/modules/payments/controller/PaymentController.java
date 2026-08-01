@@ -4,22 +4,26 @@ import com.cognix.rentalcoreapi.modules.payments.dto.PaymentRequest;
 import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
 import com.cognix.rentalcoreapi.modules.payments.service.PaymentService;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
+import com.cognix.rentalcoreapi.shared.util.SortUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/payments")
 @RequiredArgsConstructor
 public class PaymentController {
+
+    private static final Set<String> SORTABLE = Set.of(
+            "paymentDate", "amount", "expectedAmount", "periodStartDate", "createdAt");
 
     private final PaymentService paymentService;
 
@@ -35,10 +39,8 @@ public class PaymentController {
             @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to) {
 
-        Sort sort = sortDir.equalsIgnoreCase("asc")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-        Pageable pageable = PageRequest.of(page, size, sort);
+        Pageable pageable = PageRequest.of(page, size,
+                SortUtils.resolve(sortBy, sortDir, SORTABLE, "paymentDate"));
         return ResponseEntity.ok(
                 paymentService.getAllPayments(pageable, tenantId, agreementId, search, from, to));
     }

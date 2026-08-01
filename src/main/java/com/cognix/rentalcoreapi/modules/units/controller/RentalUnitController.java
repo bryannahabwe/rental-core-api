@@ -4,6 +4,7 @@ import com.cognix.rentalcoreapi.modules.units.dto.RentalUnitRequest;
 import com.cognix.rentalcoreapi.modules.units.dto.RentalUnitResponse;
 import com.cognix.rentalcoreapi.modules.units.service.RentalUnitService;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
+import com.cognix.rentalcoreapi.shared.util.SortUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -14,12 +15,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/units")
 @RequiredArgsConstructor
 public class RentalUnitController {
+
+    private static final Set<String> SORTABLE =
+            Set.of("createdAt", "roomNumber", "rentAmount", "isAvailable");
 
     private final RentalUnitService rentalUnitService;
 
@@ -32,11 +37,8 @@ public class RentalUnitController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Boolean isAvailable) {
 
-        Sort sort = sortDir.equalsIgnoreCase("asc")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-
-        Pageable pageable = PageRequest.of(page, size, sort);
+        Pageable pageable = PageRequest.of(page, size,
+                SortUtils.resolve(sortBy, sortDir, SORTABLE, "createdAt"));
         return ResponseEntity.ok(rentalUnitService.getAllUnits(pageable, search, isAvailable));
     }
 

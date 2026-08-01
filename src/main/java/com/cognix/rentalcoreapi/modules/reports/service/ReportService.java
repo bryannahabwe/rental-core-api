@@ -13,6 +13,7 @@ import com.cognix.rentalcoreapi.modules.reports.dto.SummaryResponse;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
+import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -34,10 +35,11 @@ public class ReportService {
     private final RentalAgreementRepository agreementRepository;
     private final PaymentRepository paymentRepository;
     private final AuditWriter auditWriter;
+    private final PropertyAccessGuard propertyAccessGuard;
 
     public SummaryResponse getSummary() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         long totalUnits = unitRepository.countByLandlordId(landlordId, propertyId);
         long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false, propertyId);
@@ -68,7 +70,7 @@ public class ReportService {
 
     public PaymentReportResponse getPaymentReport(LocalDate from, LocalDate to) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         if (from == null) {
             from = LocalDate.now().withDayOfMonth(1);
@@ -108,7 +110,7 @@ public class ReportService {
      */
     public List<MonthlyCollectionResponse> getMonthlyCollection(LocalDate from, LocalDate to) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         if (from == null) {
             from = LocalDate.now().minusMonths(5).withDayOfMonth(1);
@@ -147,7 +149,7 @@ public class ReportService {
 
     public OccupancyReportResponse getOccupancyReport() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-        UUID propertyId = JwtUtils.getCurrentPropertyId().orElse(null);
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
 
         long totalUnits = unitRepository.countByLandlordId(landlordId, propertyId);
         long occupiedUnits = unitRepository.countByLandlordIdAndIsAvailable(landlordId, false, propertyId);

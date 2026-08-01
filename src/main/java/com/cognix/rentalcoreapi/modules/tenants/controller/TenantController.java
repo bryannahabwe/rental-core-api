@@ -6,6 +6,7 @@ import com.cognix.rentalcoreapi.modules.tenants.dto.TenantRequest;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantResponse;
 import com.cognix.rentalcoreapi.modules.tenants.service.TenantService;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
+import com.cognix.rentalcoreapi.shared.util.SortUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -16,12 +17,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/tenants")
 @RequiredArgsConstructor
 public class TenantController {
+
+    private static final Set<String> SORTABLE = Set.of("createdAt", "name", "phone", "email");
 
     private final TenantService tenantService;
 
@@ -33,11 +37,8 @@ public class TenantController {
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String search) {
 
-        Sort sort = sortDir.equalsIgnoreCase("asc")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-
-        Pageable pageable = PageRequest.of(page, size, sort);
+        Pageable pageable = PageRequest.of(page, size,
+                SortUtils.resolve(sortBy, sortDir, SORTABLE, "createdAt"));
         return ResponseEntity.ok(tenantService.getAllTenants(pageable, search));
     }
 

@@ -7,6 +7,7 @@ import com.cognix.rentalcoreapi.modules.agreements.dto.RentalAgreementResponse;
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.service.RentalAgreementService;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
+import com.cognix.rentalcoreapi.shared.util.SortUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -17,12 +18,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/agreements")
 @RequiredArgsConstructor
 public class RentalAgreementController {
+
+    private static final Set<String> SORTABLE =
+            Set.of("createdAt", "startDate", "moveOutDate", "rentAmount", "status");
 
     private final RentalAgreementService agreementService;
 
@@ -35,11 +40,8 @@ public class RentalAgreementController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) AgreementStatus status) {
 
-        Sort sort = sortDir.equalsIgnoreCase("asc")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-
-        Pageable pageable = PageRequest.of(page, size, sort);
+        Pageable pageable = PageRequest.of(page, size,
+                SortUtils.resolve(sortBy, sortDir, SORTABLE, "createdAt"));
         return ResponseEntity.ok(agreementService.getAllAgreements(pageable, search, status));
     }
 
