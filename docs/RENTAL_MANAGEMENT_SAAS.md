@@ -844,3 +844,8 @@ a UGX 300,000 payment for Tom Okello (A1)."*). Pattern ported from
 - MTN / Airtel mobile money integration
 - Email / SMS payment notifications
 - Tenant portal (tenant-facing view of their balance + receipts)
+
+> These three, and everything else known to be missing, are covered in detail in
+> [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) — phased by dependency and leverage,
+> with the current state of the code cited for each. Keep that document as the
+> source of truth for what to build next; this section is only a summary.
