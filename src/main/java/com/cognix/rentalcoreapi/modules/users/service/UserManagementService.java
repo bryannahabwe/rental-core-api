@@ -62,14 +62,40 @@ public class UserManagementService {
     }
 
     public UserResponse getMe() {
+        // A support session has no row in `users` — the actor is Cognix staff,
+        // not a member of this account. Returning a synthetic profile keeps the
+        // clients that call /users/me on every load working, and is why a
+        // support session can drive the ordinary app at all.
+        if (JwtUtils.isSupportSession()) {
+            return supportProfile();
+        }
         User me = userRepository.findById(JwtUtils.getCurrentUserId())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         return toResponse(me);
     }
 
+    /** What {@code /users/me} reports during a support session. Presents the
+     *  staff member honestly rather than impersonating anyone in the account. */
+    private static UserResponse supportProfile() {
+        return new UserResponse(
+                JwtUtils.getCurrentUserId(),
+                JwtUtils.getCurrentUserName(),
+                null,
+                null,
+                UserRole.ADMIN,
+                UserStatus.ACTIVE,
+                List.of(),
+                Map.of(),
+                null);
+    }
+
     /** Lets any user update their own name and phone number. */
     @Transactional
     public UserResponse updateMe(UpdateProfileRequest request) {
+        if (JwtUtils.isSupportSession()) {
+            // Belt and braces — SupportReadOnlyFilter already refuses the PUT.
+            throw new AccessDeniedException("Support sessions have no profile to edit");
+        }
         User me = userRepository.findById(JwtUtils.getCurrentUserId())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 

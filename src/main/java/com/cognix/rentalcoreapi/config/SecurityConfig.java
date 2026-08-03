@@ -2,6 +2,7 @@ package com.cognix.rentalcoreapi.config;
 
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.shared.security.JwtAuthFilter;
+import com.cognix.rentalcoreapi.shared.security.SupportReadOnlyFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,6 +34,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final SupportReadOnlyFilter supportReadOnlyFilter;
     private final UserRepository userRepository;
 
     @Bean
@@ -47,16 +49,26 @@ public class SecurityConfig {
                                 "/auth/refresh",
                                 "/auth/accept-invite",
                                 "/auth/invite/**",
+                                // Cognix staff sign-in. Everything else under
+                                // /platform requires a PLATFORM token, and a
+                                // PLATFORM token reaches no customer data.
+                                "/platform/auth/login",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**"
                         ).permitAll()
+                        // Platform staff only, and a PLATFORM token grants
+                        // nothing outside this path.
+                        .requestMatchers("/platform/**").hasRole("PLATFORM")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                // Must run after jwtAuthFilter — it inspects the principal that
+                // filter establishes.
+                .addFilterAfter(supportReadOnlyFilter, JwtAuthFilter.class);
 
         return http.build();
     }

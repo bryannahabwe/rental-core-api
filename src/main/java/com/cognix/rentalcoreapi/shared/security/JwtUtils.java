@@ -2,6 +2,7 @@ package com.cognix.rentalcoreapi.shared.security;
 
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -42,6 +43,22 @@ public class JwtUtils {
         return principal().landlordId();
     }
 
+    /**
+     * True when this request is Cognix staff acting read-only inside a
+     * customer's account rather than a user of that account. The account anchor
+     * is the customer's either way, so data access is unaffected — this is for
+     * the few places that need the actor themselves, such as
+     * {@code /users/me}, which has no row in {@code users} to return.
+     */
+    public static boolean isSupportSession() {
+        return principal().isSupportSession();
+    }
+
+    /** The open support session for this request, or empty for an ordinary user. */
+    public static Optional<UUID> getCurrentSupportSessionId() {
+        return Optional.ofNullable(principal().supportSessionId());
+    }
+
     private static AuthenticatedUser principal() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
@@ -55,6 +72,11 @@ public class JwtUtils {
             return authenticatedUser;
         }
 
-        throw new IllegalStateException("Unexpected principal type in security context");
+        // Authenticated, but not as anyone inside a customer account — a
+        // PlatformPrincipal that reached an account-scoped endpoint. Denying is
+        // correct and deliberate; it is a 403 rather than a 500 because nothing
+        // has gone wrong, the caller simply has no account to be scoped to.
+        throw new AccessDeniedException(
+                "This endpoint requires an account user; platform staff must open a support session");
     }
 }

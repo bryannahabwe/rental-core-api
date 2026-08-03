@@ -17,5 +17,10 @@ public enum AuditAction {
     ACCEPT_INVITE,
     DEACTIVATE,
     ROLE_CHANGE,
-    PROFILE_UPDATE
+    PROFILE_UPDATE,
+    // Cognix staff opening/closing read-only access to a customer account.
+    // Recorded against the CUSTOMER's account, so it appears in their own
+    // activity feed — they see who looked, when, and why, without asking.
+    SUPPORT_ACCESS_START,
+    SUPPORT_ACCESS_END
 }

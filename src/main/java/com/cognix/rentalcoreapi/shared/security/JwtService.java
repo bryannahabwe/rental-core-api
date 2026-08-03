@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -29,10 +30,29 @@ public class JwtService {
 
     private static final String PURPOSE_INVITE = "INVITE";
 
+    /** Cognix staff authenticated as themselves. Reaches {@code /platform/**}
+     *  and no customer data whatsoever. */
+    private static final String PURPOSE_PLATFORM = "PLATFORM";
+
+    /** An open support session: platform staff acting read-only against one
+     *  named customer account. */
+    private static final String PURPOSE_SUPPORT = "SUPPORT";
+
     /** The identity carried by an invite token: who it's for and which issued
      *  version it represents (compared against the user's current version so
      *  superseded links can be rejected). */
     public record InviteToken(UUID userId, UUID version) {
+    }
+
+    /** The identity carried by a platform token. */
+    public record PlatformToken(UUID platformUserId) {
+    }
+
+    /** The identity carried by a support token. Only the session id travels in
+     *  the token — the account, the expiry and whether it is still open are all
+     *  re-read from the database each request, so ending a session takes effect
+     *  immediately without any token revocation machinery. */
+    public record SupportToken(UUID sessionId) {
     }
 
     private SecretKey getSigningKey() {
@@ -96,6 +116,74 @@ public class JwtService {
         String versionClaim = claims.get("inviteVersion", String.class);
         UUID version = versionClaim != null ? UUID.fromString(versionClaim) : null;
         return new InviteToken(userId, version);
+    }
+
+    // ── Platform support ──────────────────────────────────────────────────
+
+    /**
+     * A token for Cognix staff authenticated as themselves. Carries
+     * {@code purpose=PLATFORM}, so {@link #isTokenValid} refuses it for ordinary
+     * requests: holding one grants access to {@code /platform/**} and to no
+     * customer data at all. Customer data requires opening a support session.
+     */
+    public String generatePlatformToken(UUID platformUserId, String email, long expiry) {
+        return Jwts.builder()
+                .subject(email)
+                .claim("userId", platformUserId.toString())
+                .claim("purpose", PURPOSE_PLATFORM)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expiry))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public PlatformToken validatePlatformToken(String token) {
+        Claims claims = claimsForPurpose(token, PURPOSE_PLATFORM, "Invalid or expired platform session");
+        return new PlatformToken(UUID.fromString(claims.get("userId", String.class)));
+    }
+
+    /**
+     * A token for an open support session. Expires with the session, and carries
+     * {@code purpose=SUPPORT} so it can never authenticate as an ordinary user.
+     */
+    public String generateSupportToken(UUID sessionId, String email, long expiry) {
+        return Jwts.builder()
+                .subject(email)
+                .claim("sessionId", sessionId.toString())
+                .claim("purpose", PURPOSE_SUPPORT)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expiry))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public SupportToken validateSupportToken(String token) {
+        Claims claims = claimsForPurpose(token, PURPOSE_SUPPORT, "Invalid or expired support session");
+        return new SupportToken(UUID.fromString(claims.get("sessionId", String.class)));
+    }
+
+    /** The purpose a token declares, or empty for an ordinary access/refresh
+     *  token. Lets the auth filter route a request to the right identity
+     *  resolution without first trying (and failing) the ordinary path. */
+    public Optional<String> extractPurpose(String token) {
+        try {
+            return Optional.ofNullable(extractClaims(token).get("purpose", String.class));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private Claims claimsForPurpose(String token, String purpose, String message) {
+        Claims claims;
+        try {
+            claims = extractClaims(token);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(message);
+        }
+        if (!purpose.equals(claims.get("purpose", String.class))) {
+            throw new IllegalArgumentException(message);
+        }
+        return claims;
     }
 
     public Claims extractClaims(String token) {

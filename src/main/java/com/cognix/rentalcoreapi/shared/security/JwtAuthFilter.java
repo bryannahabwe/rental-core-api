@@ -3,6 +3,9 @@ package com.cognix.rentalcoreapi.shared.security;
 import com.cognix.rentalcoreapi.modules.auth.model.User;
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
+import com.cognix.rentalcoreapi.modules.platform.model.PlatformUser;
+import com.cognix.rentalcoreapi.modules.platform.repository.PlatformUserRepository;
+import com.cognix.rentalcoreapi.modules.platform.repository.SupportSessionRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Slf4j
@@ -24,9 +28,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
 
+    /** Match {@code JwtService}'s purposes without exposing its constants. */
+    private static final String PURPOSE_SUPPORT = "SUPPORT";
+    private static final String PURPOSE_PLATFORM = "PLATFORM";
+
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final PropertyAccessGuard propertyAccessGuard;
+    private final SupportSessionRepository supportSessionRepository;
+    private final PlatformUserRepository platformUserRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -48,8 +58,31 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             final String token = authHeader.substring(7);
 
+            // A support token authenticates Cognix staff into a customer's
+            // account. It carries purpose=SUPPORT, which isTokenValid refuses
+            // by design, so it is admitted here on its own branch — deliberately,
+            // rather than by loosening the check that guards every other token.
+            if (jwtService.extractPurpose(token).filter(PURPOSE_SUPPORT::equals).isPresent()) {
+                authenticateSupportSession(token, request);
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // A platform token authenticates Cognix staff as themselves, for
+            // /platform/** only. It yields a PlatformPrincipal with no account
+            // anchor, so any customer service it somehow reached would throw
+            // rather than quietly serve someone's data.
+            if (jwtService.extractPurpose(token).filter(PURPOSE_PLATFORM::equals).isPresent()) {
+                authenticatePlatformStaff(token, request);
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             // isTokenValid rejects expired tokens and special-purpose tokens
-            // (e.g. INVITE), so those can't be used to authenticate a request.
+            // (e.g. INVITE, PLATFORM), so those can't be used to authenticate a
+            // request. A PLATFORM token reaching here therefore gets no
+            // authentication: platform staff see customer data only through a
+            // support session.
             if (!jwtService.isTokenValid(token)) {
                 filterChain.doFilter(request, response);
                 return;
@@ -92,6 +125,90 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } finally {
             PropertyContextHolder.clear();
         }
+    }
+
+    /**
+     * Resolves an open support session into a principal scoped to the customer's
+     * account.
+     *
+     * <p>Only the session id travels in the token — the account, the expiry and
+     * whether the session is still open are re-read here on every request, so
+     * ending a session or deactivating the staff member takes effect on the very
+     * next call with no token revocation machinery. That mirrors how the
+     * ordinary path reloads the user rather than trusting the token.
+     *
+     * <p>The principal presents as {@link UserRole#ADMIN}: support needs
+     * account-wide reads (including the user list, to diagnose sign-in
+     * problems), but never SUPER_ADMIN, whose extra power is deletion.
+     * {@link SupportReadOnlyFilter} refuses every write regardless.
+     */
+    private void authenticateSupportSession(String token, HttpServletRequest request) {
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            return;
+        }
+        UUID sessionId;
+        try {
+            sessionId = jwtService.validateSupportToken(token).sessionId();
+        } catch (RuntimeException e) {
+            return; // malformed or wrong-purpose token — stay unauthenticated
+        }
+
+        supportSessionRepository.findById(sessionId)
+                .filter(session -> session.isLive(LocalDateTime.now()))
+                .ifPresent(session -> platformUserRepository.findById(session.getPlatformUserId())
+                        .filter(PlatformUser::isActive)
+                        .ifPresent(staff -> {
+                            AuthenticatedUser principal = new AuthenticatedUser(
+                                    session.getAccountId(),
+                                    staff.getId(),
+                                    UserRole.ADMIN,
+                                    supportActorName(staff.getName()),
+                                    staff.getEmail(),
+                                    session.getId());
+
+                            UsernamePasswordAuthenticationToken authToken =
+                                    new UsernamePasswordAuthenticationToken(
+                                            principal, null, principal.getAuthorities());
+                            authToken.setDetails(
+                                    new WebAuthenticationDetailsSource().buildDetails(request));
+                            SecurityContextHolder.getContext().setAuthentication(authToken);
+                        }));
+    }
+
+    /** Authenticates platform staff for {@code /platform/**}. Re-reads the staff
+     *  row each request, so deactivating one takes effect immediately. */
+    private void authenticatePlatformStaff(String token, HttpServletRequest request) {
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            return;
+        }
+        UUID platformUserId;
+        try {
+            platformUserId = jwtService.validatePlatformToken(token).platformUserId();
+        } catch (RuntimeException e) {
+            return;
+        }
+
+        platformUserRepository.findById(platformUserId)
+                .filter(PlatformUser::isActive)
+                .ifPresent(staff -> {
+                    PlatformPrincipal principal = new PlatformPrincipal(
+                            staff.getId(), staff.getName(), staff.getEmail());
+                    UsernamePasswordAuthenticationToken authToken =
+                            new UsernamePasswordAuthenticationToken(
+                                    principal, null, principal.getAuthorities());
+                    authToken.setDetails(
+                            new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                });
+    }
+
+    /**
+     * Audit sentences are built from the principal's name at ~40 call sites, so
+     * prefixing it here makes every one of them self-identify as support without
+     * touching a single caller.
+     */
+    private static String supportActorName(String staffName) {
+        return "Cognix Support (%s)".formatted(staffName);
     }
 
     /**

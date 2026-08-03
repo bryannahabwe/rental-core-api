@@ -3,6 +3,8 @@ package com.cognix.rentalcoreapi.shared.security;
 import com.cognix.rentalcoreapi.modules.audit.controller.AuditController;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditService;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
+import com.cognix.rentalcoreapi.modules.platform.repository.PlatformUserRepository;
+import com.cognix.rentalcoreapi.modules.platform.repository.SupportSessionRepository;
 import com.cognix.rentalcoreapi.modules.payments.controller.PaymentController;
 import com.cognix.rentalcoreapi.modules.payments.service.PaymentService;
 import com.cognix.rentalcoreapi.modules.reports.controller.ReportController;
@@ -16,9 +18,17 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.junit.jupiter.api.AfterEach;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
+import java.util.UUID;
+
+import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -79,6 +89,10 @@ class RoleAuthorizationTest {
     private UserRepository userRepository;
     @MockitoBean
     private PropertyAccessGuard propertyAccessGuard;
+    @MockitoBean
+    private SupportSessionRepository supportSessionRepository;
+    @MockitoBean
+    private PlatformUserRepository platformUserRepository;
 
     // ── The receipt fix: scoped staff can read branding and draw a number ──
 
@@ -102,6 +116,44 @@ class RoleAuthorizationTest {
         mockMvc.perform(multipart("/settings/logo")
                         .file(new MockMultipartFile("file", "logo.png", "image/png", new byte[]{1})))
                 .andExpect(status().isForbidden());
+    }
+
+    // ── Support sessions ───────────────────────────────────────────────────
+
+    /**
+     * A support session presents as ADMIN so it can read what the customer
+     * reads. Only the reads are asserted here: writes are stopped by
+     * {@link SupportReadOnlyFilter}, a servlet filter, and this slice runs with
+     * {@code addFilters = false} — so write refusal is covered by
+     * {@code SupportReadOnlyFilterTest} rather than duplicated (and faked) here.
+     */
+    @Test
+    void supportSessionReadsWhatTheCustomerReads() throws Exception {
+        // Set the holder directly, the way @WithMockUser does. The
+        // authentication() request post-processor relies on the security filter
+        // chain to load the context, and this slice runs with filters off.
+        AuthenticatedUser support = new AuthenticatedUser(
+                UUID.randomUUID(), UUID.randomUUID(), UserRole.ADMIN,
+                "Cognix Support (Brian Nahabwe)", "brian@cognix.example", UUID.randomUUID());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        support, null, support.getAuthorities()));
+
+        for (String path : List.of("/settings", "/reports/summary", "/activity")) {
+            mockMvc.perform(get(path))
+                    .andExpect(result -> {
+                        if (result.getResolvedException() != null) {
+                            throw new AssertionError(
+                                    path + " failed: " + result.getResolvedException());
+                        }
+                    })
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @AfterEach
+    void clearContext() {
+        SecurityContextHolder.clearContext();
     }
 
     // ── Caretaker: records payments, sees no portfolio reports ─────────────

@@ -23,14 +23,34 @@ import java.util.UUID;
  *                   {@link PropertyAccessGuard#effectiveRoleFor}
  * @param name       this user's display name (used in audit sentences)
  * @param username   phone number or email
+ * @param supportSessionId the open support session this request belongs to, or
+ *                   {@code null} for an ordinary user. When set, this is Cognix
+ *                   staff acting read-only inside a customer's account:
+ *                   {@code landlordId} is the <em>customer's</em> account,
+ *                   {@code userId} is the platform user (not a row in
+ *                   {@code users}), and {@code role} is always
+ *                   {@link UserRole#ADMIN} — never SUPER_ADMIN, so even a hole
+ *                   in {@link SupportReadOnlyFilter} could not delete customer
+ *                   data
  */
 public record AuthenticatedUser(
         UUID landlordId,
         UUID userId,
         UserRole role,
         String name,
-        String username
+        String username,
+        UUID supportSessionId
 ) implements UserDetails {
+
+    /** Ordinary customer principal — no support session. */
+    public AuthenticatedUser(UUID landlordId, UUID userId, UserRole role,
+                             String name, String username) {
+        this(landlordId, userId, role, name, username, null);
+    }
+
+    public boolean isSupportSession() {
+        return supportSessionId != null;
+    }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
