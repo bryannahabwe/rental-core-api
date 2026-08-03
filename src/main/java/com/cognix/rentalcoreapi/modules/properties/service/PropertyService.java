@@ -4,7 +4,6 @@ import com.cognix.rentalcoreapi.modules.audit.AuditDiff;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
-import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.properties.dto.PropertyRequest;
 import com.cognix.rentalcoreapi.modules.properties.dto.PropertyResponse;
@@ -41,8 +40,8 @@ public class PropertyService {
         List<Property> properties =
                 propertyRepository.findAllByLandlordIdOrderByCreatedAtAsc(landlordId);
 
-        // A manager sees only the properties assigned to them.
-        if (JwtUtils.getCurrentRole() == UserRole.PROPERTY_MANAGER) {
+        // Scoped staff see only the properties assigned to them.
+        if (JwtUtils.getCurrentRole().isPropertyScoped()) {
             Set<UUID> assigned = Set.copyOf(
                     assignmentRepository.findPropertyIdsByUserId(JwtUtils.getCurrentUserId()));
             properties = properties.stream()

@@ -63,6 +63,7 @@ public class TenantController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<TenantResponse> createTenant(
             @Valid @RequestBody TenantRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -70,6 +71,7 @@ public class TenantController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<TenantResponse> updateTenant(
             @PathVariable UUID id,
             @Valid @RequestBody TenantRequest request) {

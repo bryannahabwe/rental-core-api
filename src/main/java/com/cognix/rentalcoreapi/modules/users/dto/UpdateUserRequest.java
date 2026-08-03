@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.modules.users.dto;
 
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -17,7 +18,18 @@ public record UpdateUserRequest(
         @Pattern(regexp = "^\\+?[0-9]{10,15}$", message = "Invalid phone number format")
         String phoneNumber,
 
-        // Replaces the manager's property assignments (ignored for admins).
+        /**
+         * Replaces this user's property assignments and the role they hold at
+         * each (ignored for an account-wide role). Takes precedence over
+         * {@link #propertyIds} when present.
+         */
+        @Valid
+        List<PropertyAssignmentRequest> assignments,
+
+        /**
+         * Legacy: replaces the assignments, all at the top-level {@link #role}.
+         * Superseded by {@link #assignments}.
+         */
         List<UUID> propertyIds
 ) {
 }

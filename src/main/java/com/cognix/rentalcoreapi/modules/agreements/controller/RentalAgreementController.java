@@ -15,6 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -51,6 +52,7 @@ public class RentalAgreementController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<RentalAgreementResponse> createAgreement(
             @Valid @RequestBody RentalAgreementRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -58,6 +60,7 @@ public class RentalAgreementController {
     }
 
     @PatchMapping("/{id}/moveout")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<RentalAgreementResponse> recordMoveOut(
             @PathVariable UUID id,
             @Valid @RequestBody MoveOutRequest request) {
@@ -65,6 +68,7 @@ public class RentalAgreementController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<RentalAgreementResponse> updateAgreement(
             @PathVariable UUID id,
             @RequestBody RentalAgreementRequest request) {

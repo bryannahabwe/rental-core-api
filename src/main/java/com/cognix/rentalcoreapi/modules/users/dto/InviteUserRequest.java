@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.modules.users.dto;
 
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -25,7 +26,19 @@ public record InviteUserRequest(
         @NotNull(message = "Role is required")
         UserRole role,
 
-        // Only meaningful for PROPERTY_MANAGER — the properties they may access.
+        /**
+         * The properties this user may work on and the role they hold at each.
+         * Required for a property-scoped role, ignored for an account-wide one.
+         * Takes precedence over {@link #propertyIds} when present.
+         */
+        @Valid
+        List<PropertyAssignmentRequest> assignments,
+
+        /**
+         * Legacy: the properties they may access, all at the top-level
+         * {@link #role}. Superseded by {@link #assignments}; kept so clients
+         * that predate per-property roles keep working.
+         */
         List<UUID> propertyIds
 ) {
 }

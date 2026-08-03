@@ -15,6 +15,7 @@ import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
+import com.cognix.rentalcoreapi.modules.users.model.UserPropertyAssignment;
 import com.cognix.rentalcoreapi.modules.users.repository.UserPropertyAssignmentRepository;
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -197,13 +198,14 @@ public class AuthService {
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getUsername());
         String refreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername());
 
-        // A manager is scoped to specific properties; hand the client the list
-        // and a default so it can activate one on login instead of landing on
-        // the "All properties" view, which managers have no access to. Admins
-        // and owners are unrestricted, so they get no default (all-properties).
-        List<UUID> assignedPropertyIds = user.getRole() == UserRole.PROPERTY_MANAGER
-                ? assignmentRepository.findAssignedPropertyIdsOrdered(user.getId())
+        // Scoped staff are limited to specific properties; hand the client the
+        // list, the role held at each, and a default so it can activate one on
+        // login instead of landing on the "All properties" view they have no
+        // access to. Account-wide roles are unrestricted, so they get no default.
+        List<UserPropertyAssignment> assignments = user.getRole().isPropertyScoped()
+                ? assignmentRepository.findAssignmentsOrdered(user.getId())
                 : List.of();
+        List<UUID> assignedPropertyIds = UserPropertyAssignment.propertyIds(assignments);
         UUID defaultPropertyId = assignedPropertyIds.isEmpty()
                 ? null
                 : assignedPropertyIds.get(0);
@@ -217,6 +219,7 @@ public class AuthService {
                 user.getEmail(),
                 user.getRole().name(),
                 assignedPropertyIds,
+                UserPropertyAssignment.rolesByProperty(assignments),
                 defaultPropertyId
         );
     }

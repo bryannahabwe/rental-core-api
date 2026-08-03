@@ -12,6 +12,7 @@ import com.cognix.rentalcoreapi.modules.notification.EmailService;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.users.dto.InviteUserRequest;
+import com.cognix.rentalcoreapi.modules.users.dto.PropertyAssignmentRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UpdateProfileRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UpdateUserRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UserResponse;
@@ -29,8 +30,11 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -97,7 +101,10 @@ public class UserManagementService {
     @Transactional
     public UserResponse inviteUser(InviteUserRequest request) {
         UUID account = JwtUtils.getCurrentLandlordId();
-        assertCanAssignRole(request.role());
+        List<PropertyAssignmentRequest> assignments =
+                normalise(request.role(), request.assignments(), request.propertyIds());
+        UserRole accountRole = accountRoleFor(request.role(), assignments);
+        assertCanAssignRoles(accountRole, assignments);
 
         if (userRepository.existsByEmail(request.email())) {
             throw new IllegalArgumentException(
@@ -113,20 +120,20 @@ public class UserManagementService {
                 .name(request.name())
                 .phoneNumber(request.phoneNumber())
                 .email(request.email())
-                .role(request.role())
+                .role(accountRole)
                 .status(UserStatus.INVITED)
                 .accountOwnerId(account)
                 .build();
         userRepository.save(user);
 
-        replaceAssignments(user, request.role(), request.propertyIds(), account);
+        replaceAssignments(user, accountRole, assignments, account);
 
         sendInviteEmail(user, account);
 
         auditWriter.record(AuditModule.USER, AuditAction.INVITE, null, user.getEmail(),
                 "%s invited %s as %s with access to %s.".formatted(
-                        JwtUtils.getCurrentUserName(), user.getEmail(), labelFor(request.role()),
-                        describeAssignments(request.role(), user.getId())));
+                        JwtUtils.getCurrentUserName(), user.getEmail(), labelFor(accountRole),
+                        describeAssignments(accountRole, user.getId())));
 
         return toResponse(user);
     }
@@ -159,7 +166,10 @@ public class UserManagementService {
     public UserResponse updateUser(UUID id, UpdateUserRequest request) {
         UUID account = JwtUtils.getCurrentLandlordId();
         User user = loadManageableUser(id, account);
-        assertCanAssignRole(request.role());
+        List<PropertyAssignmentRequest> assignments =
+                normalise(request.role(), request.assignments(), request.propertyIds());
+        UserRole accountRole = accountRoleFor(request.role(), assignments);
+        assertCanAssignRoles(accountRole, assignments);
 
         // Reject a phone number already taken by a different user.
         userRepository.findByPhoneNumber(request.phoneNumber())
@@ -170,29 +180,33 @@ public class UserManagementService {
                 });
 
         // Capture what changed before the setters run — the property assignments
-        // included, since which properties a manager can reach is a permissions
+        // included, since which properties someone can reach is a permissions
         // change and belongs in the trail as plainly as the role.
         UserRole previousRole = user.getRole();
         List<String> changes = new ArrayList<>();
-        AuditDiff.diff(changes, "role", labelFor(previousRole), labelFor(request.role()));
+        AuditDiff.diff(changes, "role", labelFor(previousRole), labelFor(accountRole));
         AuditDiff.diff(changes, "phone", user.getPhoneNumber(), request.phoneNumber());
         String assignmentsBefore = describeAssignments(previousRole, user.getId());
+        Map<UUID, UserRole> rolesBefore = assignedRolesFor(user);
 
-        user.setRole(request.role());
+        user.setRole(accountRole);
         user.setPhoneNumber(request.phoneNumber());
         userRepository.save(user);
 
-        replaceAssignments(user, request.role(), request.propertyIds(), account);
+        replaceAssignments(user, accountRole, assignments, account);
 
         AuditDiff.diff(changes, "property access",
-                assignmentsBefore, describeAssignments(request.role(), user.getId()));
+                assignmentsBefore, describeAssignments(accountRole, user.getId()));
 
         if (!changes.isEmpty()) {
             // A role change is the material event for a permissions audit;
-            // anything else is a plain edit.
-            AuditAction action = previousRole != request.role()
-                    ? AuditAction.ROLE_CHANGE
-                    : AuditAction.UPDATE;
+            // anything else is a plain edit. With per-property roles the account
+            // role can stay put while someone is demoted at one property, so
+            // that counts too — otherwise the demotion would be filed as a
+            // plain UPDATE and miss an audit filtered on ROLE_CHANGE.
+            boolean roleChanged = previousRole != accountRole
+                    || roleChangedAtSomeProperty(rolesBefore, assignedRolesFor(user));
+            AuditAction action = roleChanged ? AuditAction.ROLE_CHANGE : AuditAction.UPDATE;
             auditWriter.record(AuditModule.USER, action, null, user.getName(),
                     "%s updated user %s: %s.".formatted(
                             JwtUtils.getCurrentUserName(), user.getName(),
@@ -223,15 +237,62 @@ public class UserManagementService {
 
     // ── Guards ────────────────────────────────────────────────────────────
 
-    /** A caller may never create/assign the SUPER_ADMIN role; ADMINs may only
-     *  manage PROPERTY_MANAGERs. */
+    /**
+     * Folds the request's assignments into a single shape. The per-property
+     * {@code assignments} win when present; otherwise the legacy
+     * {@code propertyIds} are taken at the request's top-level role, which is
+     * how every client behaved before roles became per-property.
+     */
+    private static List<PropertyAssignmentRequest> normalise(
+            UserRole role, List<PropertyAssignmentRequest> assignments, List<UUID> propertyIds) {
+        if (assignments != null && !assignments.isEmpty()) {
+            return assignments;
+        }
+        if (!role.isPropertyScoped() || propertyIds == null) {
+            return List.of();
+        }
+        return propertyIds.stream()
+                .filter(Objects::nonNull)
+                .map(propertyId -> new PropertyAssignmentRequest(propertyId, role))
+                .toList();
+    }
+
+    /**
+     * The role stored on the user row. Account-wide roles are taken as asked
+     * for; for scoped staff it is derived from the assignments, so the column
+     * can't disagree with what the user actually holds somewhere. Derived rather
+     * than compared by ordinal — declaration order is not a privilege lattice.
+     */
+    private static UserRole accountRoleFor(UserRole requested,
+                                           List<PropertyAssignmentRequest> assignments) {
+        if (!requested.isPropertyScoped()) {
+            return requested;
+        }
+        return assignments.stream()
+                .anyMatch(assignment -> assignment.role() == UserRole.PROPERTY_MANAGER)
+                ? UserRole.PROPERTY_MANAGER
+                : UserRole.CARETAKER;
+    }
+
+    /** Checks the caller may hand out the account role and every role they're
+     *  assigning at a property. */
+    private void assertCanAssignRoles(UserRole accountRole,
+                                      List<PropertyAssignmentRequest> assignments) {
+        assertCanAssignRole(accountRole);
+        assignments.stream()
+                .map(PropertyAssignmentRequest::role)
+                .distinct()
+                .forEach(this::assertCanAssignRole);
+    }
+
+    /** A caller may never create/assign the SUPER_ADMIN role; ADMINs may manage
+     *  every role except another admin. */
     private void assertCanAssignRole(UserRole targetRole) {
         if (targetRole == UserRole.SUPER_ADMIN) {
             throw new AccessDeniedException("The owner role cannot be assigned");
         }
-        if (JwtUtils.getCurrentRole() == UserRole.ADMIN
-                && targetRole != UserRole.PROPERTY_MANAGER) {
-            throw new AccessDeniedException("Admins can only manage property managers");
+        if (JwtUtils.getCurrentRole() == UserRole.ADMIN && targetRole.isAdmin()) {
+            throw new AccessDeniedException("Admins cannot manage other admins");
         }
     }
 
@@ -290,17 +351,19 @@ public class UserManagementService {
         }
     }
 
-    private void replaceAssignments(User user, UserRole role, List<UUID> propertyIds, UUID account) {
-        if (role != UserRole.PROPERTY_MANAGER) {
-            // Admins/owners are account-wide; drop any stale assignments.
+    private void replaceAssignments(User user, UserRole role,
+                                    List<PropertyAssignmentRequest> assignments, UUID account) {
+        if (!role.isPropertyScoped()) {
+            // Account-wide roles reach everything; drop any stale assignments.
             assignmentRepository.deleteByUserId(user.getId());
             return;
         }
-        // A property manager scoped to nothing can access nothing — reject it
-        // up front rather than creating a user who lands on an empty account.
-        if (propertyIds == null || propertyIds.stream().noneMatch(Objects::nonNull)) {
+        // Scoped staff with nothing assigned can access nothing — reject it up
+        // front rather than creating a user who lands on an empty account.
+        if (assignments.isEmpty()) {
             throw new IllegalArgumentException(
-                    "A property manager must be assigned at least one property");
+                    "A %s must be assigned at least one property".formatted(
+                            labelFor(role).toLowerCase()));
         }
         assignmentRepository.deleteByUserId(user.getId());
         // Force the deletes to hit the DB before the re-inserts below. Hibernate
@@ -308,34 +371,71 @@ public class UserManagementService {
         // property the user already had collides with the (user, property)
         // unique constraint.
         assignmentRepository.flush();
-        for (UUID propertyId : propertyIds.stream().filter(Objects::nonNull).distinct().toList()) {
-            if (!propertyRepository.existsByIdAndLandlordId(propertyId, account)) {
-                throw new IllegalArgumentException("Property not found: " + propertyId);
+        Set<UUID> assigned = new HashSet<>();
+        for (PropertyAssignmentRequest assignment : assignments) {
+            if (!assignment.role().isPropertyScoped()) {
+                throw new IllegalArgumentException(
+                        "%s reaches every property and cannot be assigned to one".formatted(
+                                labelFor(assignment.role())));
+            }
+            // First mention of a property wins, matching the de-duplication the
+            // legacy propertyIds list got.
+            if (!assigned.add(assignment.propertyId())) {
+                continue;
+            }
+            if (!propertyRepository.existsByIdAndLandlordId(assignment.propertyId(), account)) {
+                throw new IllegalArgumentException("Property not found: " + assignment.propertyId());
             }
             assignmentRepository.save(UserPropertyAssignment.builder()
                     .userId(user.getId())
-                    .propertyId(propertyId)
+                    .propertyId(assignment.propertyId())
+                    .role(assignment.role())
                     .build());
         }
     }
 
     /**
-     * A user's property access as an audit-readable phrase: property names for a
-     * manager, "all properties" for account-wide roles. Names are sorted so the
-     * before/after comparison doesn't fire on row ordering alone.
+     * A user's property access as an audit-readable phrase: each property and
+     * the role held there for scoped staff, "all properties" for account-wide
+     * roles. Sorted so the before/after comparison doesn't fire on row ordering
+     * alone.
      */
     private String describeAssignments(UserRole role, UUID userId) {
-        if (role != UserRole.PROPERTY_MANAGER) {
+        if (!role.isPropertyScoped()) {
             return "all properties";
         }
-        List<UUID> propertyIds = assignmentRepository.findPropertyIdsByUserId(userId);
-        if (propertyIds.isEmpty()) {
+        List<UserPropertyAssignment> assignments =
+                assignmentRepository.findAssignmentsOrdered(userId);
+        if (assignments.isEmpty()) {
             return "no properties";
         }
-        return propertyRepository.findAllById(propertyIds).stream()
-                .map(Property::getName)
+        Map<UUID, String> names = propertyRepository
+                .findAllById(UserPropertyAssignment.propertyIds(assignments)).stream()
+                .collect(Collectors.toMap(Property::getId, Property::getName));
+        return assignments.stream()
+                .map(assignment -> "%s (%s)".formatted(
+                        names.get(assignment.getPropertyId()), labelFor(assignment.getRole())))
                 .sorted()
                 .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * True if any property the user still holds is held at a different role than
+     * before — a demotion or promotion that leaves the account role untouched.
+     */
+    private static boolean roleChangedAtSomeProperty(Map<UUID, UserRole> before,
+                                                     Map<UUID, UserRole> after) {
+        return before.entrySet().stream()
+                .anyMatch(entry -> after.containsKey(entry.getKey())
+                        && after.get(entry.getKey()) != entry.getValue());
+    }
+
+    private Map<UUID, UserRole> assignedRolesFor(User user) {
+        if (!user.getRole().isPropertyScoped()) {
+            return Map.of();
+        }
+        return UserPropertyAssignment.rolesByProperty(
+                assignmentRepository.findAssignmentsOrdered(user.getId()));
     }
 
     private static String labelFor(UserRole role) {
@@ -343,13 +443,19 @@ public class UserManagementService {
             case SUPER_ADMIN -> "Owner";
             case ADMIN -> "Admin";
             case PROPERTY_MANAGER -> "Property Manager";
+            case CARETAKER -> "Caretaker";
+            case ACCOUNTANT -> "Accountant";
         };
     }
 
     private UserResponse toResponse(User user) {
-        List<UUID> assigned = user.getRole() == UserRole.PROPERTY_MANAGER
-                ? assignmentRepository.findPropertyIdsByUserId(user.getId())
-                : List.of();
-        return UserResponse.from(user, assigned);
+        if (!user.getRole().isPropertyScoped()) {
+            return UserResponse.from(user, List.of(), Map.of());
+        }
+        List<UserPropertyAssignment> assignments =
+                assignmentRepository.findAssignmentsOrdered(user.getId());
+        return UserResponse.from(user,
+                UserPropertyAssignment.propertyIds(assignments),
+                UserPropertyAssignment.rolesByProperty(assignments));
     }
 }

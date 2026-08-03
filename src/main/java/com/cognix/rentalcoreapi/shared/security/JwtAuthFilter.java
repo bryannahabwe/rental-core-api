@@ -1,6 +1,7 @@
 package com.cognix.rentalcoreapi.shared.security;
 
 import com.cognix.rentalcoreapi.modules.auth.model.User;
+import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,6 +26,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final PropertyAccessGuard propertyAccessGuard;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -62,9 +64,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 userRepository.findById(userId)
                         .filter(User::isEnabled)
                         .ifPresent(user -> {
+                            // Property-scoped staff hold a role per property, so
+                            // the principal carries the role for the property
+                            // active on THIS request. That makes every
+                            // @PreAuthorize check property-aware for free, and
+                            // means a demotion at one property takes effect on
+                            // the next request with no token reissue.
+                            UserRole effectiveRole = propertyAccessGuard.effectiveRoleFor(
+                                    user.getId(), user.getRole(),
+                                    PropertyContextHolder.get().orElse(null));
+
                             AuthenticatedUser authenticatedUser = new AuthenticatedUser(
                                     user.getAccountOwnerId(), user.getId(),
-                                    user.getRole(), user.getName(), user.getUsername());
+                                    effectiveRole, user.getName(), user.getUsername());
 
                             UsernamePasswordAuthenticationToken authToken =
                                     new UsernamePasswordAuthenticationToken(

@@ -746,12 +746,30 @@ aggregate) from a switcher in the sidebar/top bar.
 Each account (anchored by the owner's user id, stored as `landlord_id`) can have
 multiple users with roles:
 
-- **SUPER_ADMIN** — the account owner; full control incl. user management.
-- **ADMIN** — full-access staff (all properties, reports, settings); may manage
-  PROPERTY_MANAGERs only.
-- **PROPERTY_MANAGER** — limited to assigned properties (`user_properties`);
-  manages tenants/units/agreements/payments there; no reports/settings/user
-  management/property CRUD, and no "All properties" aggregate.
+Roles are either **account-wide** (they reach every property) or
+**property-scoped** (they reach only the properties listed for them in
+`user_properties`, and are held *per property*).
+
+- **SUPER_ADMIN** — account-wide. The account owner; full control incl. user
+  management. Can only be created by self-registration, and cannot be assigned,
+  deactivated, or transferred.
+- **ADMIN** — account-wide. Full-access staff (all properties, reports,
+  settings); may manage every role except another admin.
+- **ACCOUNTANT** — account-wide but **read-only**: reports, payments, tenant
+  ledgers, and the activity feed. Writes nothing.
+- **PROPERTY_MANAGER** — property-scoped; manages tenants/units/agreements/
+  payments on assigned properties. No reports, no user management, no property
+  CRUD, no deletes, and no "All properties" aggregate. Reads settings and draws
+  receipt numbers so it can issue receipts, but cannot edit branding.
+- **CARETAKER** — property-scoped and narrower still: records payments and reads
+  tenants/units/agreements on assigned properties, and issues receipts. Cannot
+  write tenants, units, or agreements, and sees no portfolio reports.
+
+**Per-property roles.** The same person can be a Property Manager at one
+property and a Caretaker at another. `users.role` holds the *account* role —
+derived from the assignments for scoped staff, so it can never disagree with
+what they actually hold somewhere — while `user_properties.role` holds the role
+at each property.
 
 **How it works:**
 
@@ -759,13 +777,31 @@ multiple users with roles:
   `account_owner_id`; `phone_number`/`password_hash` are nullable (invited staff
   join by email). Migration `V15__add_user_roles_and_assignments.sql` backfills
   every existing user as an active SUPER_ADMIN owner and creates `user_properties`.
+  `V19__add_caretaker_and_accountant_roles.sql` widens `chk_users_role` and adds
+  `user_properties.role`, backfilled to `PROPERTY_MANAGER` (every pre-existing
+  assignment row belonged to a manager).
 - The JWT filter reloads the `User` from the DB each request and builds the
   principal from the entity (`accountOwnerId`, `role`, `userId`), so role changes
   and deactivations take effect immediately. `getCurrentLandlordId()` still
   returns the account anchor, leaving all existing scoping untouched.
-- Authorization: `@EnableMethodSecurity` + `@PreAuthorize` gate admin-only
-  endpoints (property writes, reports, settings, `/users`); `PropertyAccessGuard`
-  enforces the manager → assigned-property restriction in the scoped services.
+- **Effective role.** The filter parses `X-Property-Id` *before* it builds the
+  principal, so for scoped staff it stores the role held at the active property
+  (`PropertyAccessGuard.effectiveRoleFor`). Every `@PreAuthorize` check is
+  therefore property-aware with no extra authorization layer, and a demotion at
+  one property takes effect on the next request with no token reissue. With no
+  header, the role resolves against the same default property
+  `requireAccessibleProperty()` falls back to; a header naming an unassigned
+  property falls back to that default too, so a bogus header can't promote a
+  caretaker.
+- Authorization: `@EnableMethodSecurity` + `@PreAuthorize` answer *may this role
+  do this kind of thing*; `PropertyAccessGuard` answers *is this property one of
+  theirs*. Account-wide roles pass straight through the guard.
+- Login and `GET /users` return `assignedPropertyIds` plus a `propertyRoles` map;
+  clients resolve the applicable role as
+  `propertyRoles[activePropertyId] ?? role`.
+- Invites carry `assignments: [{propertyId, role}]` for a scoped role. The older
+  flat `propertyIds` list is still accepted — it is folded into assignments at the
+  request's top-level role — so clients predating per-property roles keep working.
 - Invites: `POST /users/invite` creates an INVITED user + a short-lived
   `purpose=INVITE` JWT emailed via the Brevo stack (`modules/notification`;
   logs the link when `app.mail.brevo.enabled=false`). `POST /auth/accept-invite`

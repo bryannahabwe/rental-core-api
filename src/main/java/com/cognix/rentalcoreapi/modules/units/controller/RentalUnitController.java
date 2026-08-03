@@ -48,6 +48,7 @@ public class RentalUnitController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<RentalUnitResponse> createUnit(
             @Valid @RequestBody RentalUnitRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -55,6 +56,7 @@ public class RentalUnitController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<RentalUnitResponse> updateUnit(
             @PathVariable UUID id,
             @Valid @RequestBody RentalUnitRequest request) {

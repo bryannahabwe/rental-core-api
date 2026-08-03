@@ -92,7 +92,7 @@ Status badges on each card tell you where things stand:
 ## Quick reference
 
 ```
-Owner/Admin: Users → Invite User → (name, phone, email, role=Property Manager, assign property) → Send invite
+Owner/Admin: Users → Invite User → (name, phone, email, then a role per assigned property) → Send invite
 Manager:     Email link → set password → auto-logged in → lands on Tenants (scoped to assigned property)
 Manage:      Users → open card → Edit / Resend invite / Deactivate
 ```
@@ -102,5 +102,18 @@ Manage:      Users → open card → Edit / Resend invite / Deactivate
 | Role | Scope |
 |------|-------|
 | **Owner** (Super Admin) | Full access; the account anchor. Can't be deactivated. |
-| **Admin** | Full access; can manage Property Managers. |
+| **Admin** | Full access; can manage everyone except other admins. |
+| **Accountant** | Every property, but read-only: reports, payments, ledgers, activity. |
 | **Property Manager** | Operational access to assigned properties only. |
+| **Caretaker** | Assigned properties, day-to-day only: records payments and issues receipts, but can't write tenants, units or agreements, and sees no reports. |
+
+### Different roles at different properties
+
+Roles are held **per property**, so one person can be a Property Manager at
+Kireka and a Caretaker at Ntinda. When you invite or edit them, pick the role
+alongside each property rather than once for the whole account. Whichever
+property they have active in the switcher is the role that applies — switching
+properties switches what they can do.
+
+Owner, Admin and Accountant are account-wide: they reach every property, so they
+carry no per-property assignments.

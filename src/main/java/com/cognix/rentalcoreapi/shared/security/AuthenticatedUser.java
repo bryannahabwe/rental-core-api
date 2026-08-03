@@ -15,7 +15,12 @@ import java.util.UUID;
  * @param landlordId the account anchor (the owner user's id) every data row is
  *                   scoped to — for the owner this equals {@code userId}
  * @param userId     this authenticated user's own id
- * @param role       this user's role (drives {@code @PreAuthorize} checks)
+ * @param role       the role this user holds for the property active on this
+ *                   request ({@code X-Property-Id}), which is what
+ *                   {@code @PreAuthorize} checks are evaluated against. For
+ *                   account-wide roles this is simply their account role; for
+ *                   property-scoped staff it is resolved per request by
+ *                   {@link PropertyAccessGuard#effectiveRoleFor}
  * @param name       this user's display name (used in audit sentences)
  * @param username   phone number or email
  */

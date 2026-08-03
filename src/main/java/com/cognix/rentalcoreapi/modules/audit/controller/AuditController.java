@@ -21,7 +21,7 @@ import java.time.LocalDate;
 @RestController
 @RequestMapping("/activity")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
 public class AuditController {
 
     private final AuditService auditService;
