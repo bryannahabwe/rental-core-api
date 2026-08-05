@@ -289,7 +289,11 @@ public class RentalAgreementService {
             LocalDate cycleEnd = BillingCycleUtils.cycleEnd(
                     cycleStart, agreement.getBillingDay());
 
-            BigDecimal paidAmount = paymentRepository.sumByAgreementAndCycle(
+            // Retained, not gross: a cycle that received a 300k payment
+            // against 180k rent keeps 180k and rolls 120k forward, so its
+            // Paid/Balance must read 180k/0 — not 300k with a 120k credit
+            // that's already been re-recorded as the next cycle's rollover.
+            BigDecimal paidAmount = paymentRepository.sumRetainedByAgreementAndCycle(
                     agreement.getId(), cycleStart, cycleEnd);
 
             BigDecimal expectedAmount = agreement.getRentAmount();

@@ -131,4 +131,24 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("periodStartDate") LocalDate periodStartDate,
             @Param("periodEndDate") LocalDate periodEndDate
     );
+
+    // ── Amount RETAINED by a cycle: gross received on it minus the excess
+    // that rolled OUT of it. A CASH payment keeps its full amount (incl. the
+    // portion that rolled forward) on its own row and records that excess in
+    // `overpayment`, while the same excess is re-recorded as the next cycle's
+    // ROLLOVER row. So the source cycle's gross (e.g. 300k against 180k rent)
+    // overstates what that period actually kept. Netting off `overpayment`
+    // gives the retained figure (180k, balance 0) and stops the source cycle
+    // showing a phantom credit for money already counted as the next cycle's
+    // rollover payment. `overpayment` is non-null (defaults to 0), so the
+    // subtraction never nulls a row out of the SUM. ──
+    @Query("SELECT COALESCE(SUM(p.amount - p.overpayment), 0) FROM Payment p " +
+            "WHERE p.agreement.id = :agreementId " +
+            "AND p.periodStartDate = :periodStartDate " +
+            "AND p.periodEndDate = :periodEndDate")
+    BigDecimal sumRetainedByAgreementAndCycle(
+            @Param("agreementId") UUID agreementId,
+            @Param("periodStartDate") LocalDate periodStartDate,
+            @Param("periodEndDate") LocalDate periodEndDate
+    );
 }
