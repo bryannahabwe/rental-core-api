@@ -58,7 +58,11 @@ public class TenantController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "15") int size) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("paymentDate").descending());
+        // paymentDate desc, then createdAt desc — same order as the ledger preview
+        // and the /payments endpoint, so "load more" continues the list seamlessly
+        // and matches the Payments table for the tenant.
+        Pageable pageable = PageRequest.of(
+                page, size, Sort.by(Sort.Direction.DESC, "paymentDate", "createdAt"));
         return ResponseEntity.ok(tenantService.getTenantTransactions(id, pageable));
     }
 

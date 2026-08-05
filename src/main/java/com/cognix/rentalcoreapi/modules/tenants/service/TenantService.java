@@ -244,13 +244,19 @@ public class TenantService {
                     c.paidAmount(), running, c.status(), due));
         }
 
-        // Most recent payment first for display — the balance walk above
-        // already consumed allPayments/cashPayments in chronological order.
-        // Only a bounded preview ships in this response; the rest is fetched
-        // on demand via getTenantTransactions() ("load more" in the UI) so a
-        // long-running tenancy doesn't inflate this payload over time.
+        // Most recent payment first for display, newest-created breaking ties on
+        // the same date — the exact order the Payments endpoint uses (paymentDate
+        // desc, then createdAt desc), so a tenant's Transaction History and the
+        // Payments table list identical rows in identical order. The balance walk
+        // above already consumed allPayments/cashPayments in chronological order.
+        // Only a bounded preview ships here; the rest is fetched on demand via
+        // getTenantTransactions() ("load more") so a long tenancy doesn't inflate
+        // this payload over time. ROLLOVER rows are kept — they're real payment
+        // records and appear on the Payments table too.
         List<PaymentResponse> transactions = allPayments.stream()
-                .sorted(java.util.Comparator.comparing(Payment::getPaymentDate).reversed())
+                .sorted(java.util.Comparator.comparing(Payment::getPaymentDate)
+                        .thenComparing(Payment::getCreatedAt)
+                        .reversed())
                 .limit(TRANSACTIONS_PREVIEW_SIZE)
                 .map(PaymentResponse::from).toList();
 

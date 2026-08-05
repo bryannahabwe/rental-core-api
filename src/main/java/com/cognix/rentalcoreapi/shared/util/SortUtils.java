@@ -34,8 +34,17 @@ public final class SortUtils {
      */
     public static Sort resolve(String sortBy, String sortDir, Set<String> allowed, String fallback) {
         String field = (sortBy != null && allowed.contains(sortBy)) ? sortBy : fallback;
-        return "asc".equalsIgnoreCase(sortDir)
-                ? Sort.by(field).ascending()
-                : Sort.by(field).descending();
+        Sort.Direction dir = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        Sort primary = Sort.by(dir, field);
+        // Stable tiebreak: among rows sharing the primary value, the most recently
+        // created record comes first. Without it, ties (e.g. two payments on the
+        // same date — a CASH row and the ROLLOVER it spawned) come back in
+        // nondeterministic order, so the same data renders differently across
+        // endpoints and even between calls. Every entity extends BaseEntity, so
+        // `createdAt` is always a valid persistent property.
+        if ("createdAt".equals(field)) {
+            return primary;
+        }
+        return primary.and(Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 }
