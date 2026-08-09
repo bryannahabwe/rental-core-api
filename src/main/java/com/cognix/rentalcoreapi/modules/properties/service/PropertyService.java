@@ -12,6 +12,8 @@ import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
 import com.cognix.rentalcoreapi.modules.users.repository.UserPropertyAssignmentRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +57,7 @@ public class PropertyService {
     public PropertyResponse getProperty(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         Property property = propertyRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Property not found"));
+                .orElseThrow(() -> new NotFoundException("Property not found"));
         propertyAccessGuard.assertCanAccess(property.getId());
         return toResponse(property);
     }
@@ -65,7 +67,7 @@ public class PropertyService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         if (propertyRepository.existsByNameAndLandlordId(request.name(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "A property with this name already exists: " + request.name());
         }
 
@@ -92,11 +94,11 @@ public class PropertyService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Property property = propertyRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Property not found"));
+                .orElseThrow(() -> new NotFoundException("Property not found"));
 
         if (!property.getName().equals(request.name())
                 && propertyRepository.existsByNameAndLandlordId(request.name(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "A property with this name already exists: " + request.name());
         }
 
@@ -127,13 +129,13 @@ public class PropertyService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Property property = propertyRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Property not found"));
+                .orElseThrow(() -> new NotFoundException("Property not found"));
 
         long units = unitRepository.countByPropertyId(id);
         long tenants = tenantRepository.countByPropertyId(id);
 
         if (units > 0 || tenants > 0) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Cannot delete a property that still has units or tenants. "
                             + "Move or remove them first.");
         }

@@ -70,4 +70,13 @@ public class UserController {
         userManagementService.deactivateUser(id);
         return ResponseEntity.noContent().build();
     }
+
+    // Only the current owner may hand ownership to another (already-admin) user.
+    // The caller is demoted to ADMIN in the same step.
+    @PostMapping("/{id}/transfer-ownership")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<Void> transferOwnership(@PathVariable UUID id) {
+        userManagementService.transferOwnership(id);
+        return ResponseEntity.noContent().build();
+    }
 }

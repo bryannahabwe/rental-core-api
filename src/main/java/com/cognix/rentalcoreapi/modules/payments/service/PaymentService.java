@@ -13,6 +13,8 @@ import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentMethod;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
@@ -56,7 +58,7 @@ public class PaymentService {
     public PaymentResponse getPayment(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         Payment payment = paymentRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+                .orElseThrow(() -> new NotFoundException("Payment not found"));
         propertyAccessGuard.assertCanAccess(payment.getProperty().getId());
         return PaymentResponse.from(payment);
     }
@@ -72,11 +74,11 @@ public class PaymentService {
 
         var agreement = agreementRepository.findByIdAndLandlordId(
                         request.agreementId(), landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+                .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         if (agreement.getStatus() == AgreementStatus.TERMINATED) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Cannot record payment for a terminated agreement");
         }
 

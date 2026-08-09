@@ -22,6 +22,8 @@ import com.cognix.rentalcoreapi.modules.tenants.dto.TenantRequest;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantResponse;
 import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
@@ -66,7 +68,7 @@ public class TenantService {
     public TenantResponse getTenant(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+                .orElseThrow(() -> new NotFoundException("Tenant not found"));
         propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
         return enrichWithBalance(tenant, landlordId);
     }
@@ -77,19 +79,19 @@ public class TenantService {
         propertyAccessGuard.assertCanAccess(request.propertyId());
 
         if (tenantRepository.existsByPhoneAndLandlordId(request.phone(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Tenant with phone number already exists: " + request.phone());
         }
 
         if (request.email() != null &&
                 tenantRepository.existsByEmailAndLandlordId(request.email(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Tenant with email already exists: " + request.email());
         }
 
         Property property = propertyRepository
                 .findByIdAndLandlordId(request.propertyId(), landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Property not found"));
+                .orElseThrow(() -> new NotFoundException("Property not found"));
 
         Tenant tenant = Tenant.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
@@ -118,7 +120,7 @@ public class TenantService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+                .orElseThrow(() -> new NotFoundException("Tenant not found"));
         propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
         List<String> changes = new ArrayList<>();
@@ -129,14 +131,14 @@ public class TenantService {
 
         if (!tenant.getPhone().equals(request.phone()) &&
                 tenantRepository.existsByPhoneAndLandlordId(request.phone(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Tenant with phone number already exists: " + request.phone());
         }
 
         if (request.email() != null &&
                 !request.email().equals(tenant.getEmail()) &&
                 tenantRepository.existsByEmailAndLandlordId(request.email(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Tenant with email already exists: " + request.email());
         }
 
@@ -163,7 +165,7 @@ public class TenantService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+                .orElseThrow(() -> new NotFoundException("Tenant not found"));
         propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
         UUID propertyId = tenant.getProperty().getId();
@@ -183,13 +185,13 @@ public class TenantService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(tenantId, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+                .orElseThrow(() -> new NotFoundException("Tenant not found"));
         propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
         RentalAgreement agreement = agreementRepository
                 .findFirstByTenantIdAndLandlordIdAndStatus(
                         tenantId, landlordId, AgreementStatus.ACTIVE)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new NotFoundException(
                         "Tenant has no active agreement"));
 
         BalanceSummary summary = computeBalanceSummary(agreement);
@@ -280,13 +282,13 @@ public class TenantService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         Tenant tenant = tenantRepository.findByIdAndLandlordId(tenantId, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+                .orElseThrow(() -> new NotFoundException("Tenant not found"));
         propertyAccessGuard.assertCanAccess(tenant.getProperty().getId());
 
         RentalAgreement agreement = agreementRepository
                 .findFirstByTenantIdAndLandlordIdAndStatus(
                         tenantId, landlordId, AgreementStatus.ACTIVE)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new NotFoundException(
                         "Tenant has no active agreement"));
 
         Page<Payment> page = paymentRepository.findAllByLandlordIdAndAgreementId(

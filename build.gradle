@@ -45,6 +45,10 @@ dependencies {
 
     // ── Cloudinary ───────────────────────────────────────────────────────
     implementation 'com.cloudinary:cloudinary-http44:1.39.0'
+
+    // ── API docs (live OpenAPI + Swagger UI) ───────────────────────────────
+    // 3.x is the Spring Boot 4 / Spring Framework 7 compatible line.
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 }
 
 tasks.named('test') {

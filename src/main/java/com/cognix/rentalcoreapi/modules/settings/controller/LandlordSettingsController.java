@@ -3,6 +3,7 @@ package com.cognix.rentalcoreapi.modules.settings.controller;
 import com.cognix.rentalcoreapi.modules.settings.dto.LandlordSettingsRequest;
 import com.cognix.rentalcoreapi.modules.settings.dto.LandlordSettingsResponse;
 import com.cognix.rentalcoreapi.modules.settings.service.LandlordSettingsService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -33,7 +34,7 @@ public class LandlordSettingsController {
     @PutMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<LandlordSettingsResponse> updateSettings(
-            @RequestBody LandlordSettingsRequest request) {
+            @Valid @RequestBody LandlordSettingsRequest request) {
         return ResponseEntity.ok(settingsService.updateSettings(request));
     }
 

@@ -11,6 +11,8 @@ import com.cognix.rentalcoreapi.modules.units.dto.RentalUnitRequest;
 import com.cognix.rentalcoreapi.modules.units.dto.RentalUnitResponse;
 import com.cognix.rentalcoreapi.modules.units.model.RentalUnit;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
@@ -47,7 +49,7 @@ public class RentalUnitService {
     public RentalUnitResponse getUnit(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         RentalUnit unit = rentalUnitRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Rental unit not found"));
+                .orElseThrow(() -> new NotFoundException("Rental unit not found"));
         propertyAccessGuard.assertCanAccess(unit.getProperty().getId());
         return RentalUnitResponse.from(unit);
     }
@@ -59,7 +61,7 @@ public class RentalUnitService {
 
         if (rentalUnitRepository.existsByRoomNumberAndLandlordId(
                 request.roomNumber(), landlordId)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Room number already exists: " + request.roomNumber());
         }
 
@@ -92,7 +94,7 @@ public class RentalUnitService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         RentalUnit unit = rentalUnitRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Rental unit not found"));
+                .orElseThrow(() -> new NotFoundException("Rental unit not found"));
         propertyAccessGuard.assertCanAccess(unit.getProperty().getId());
 
         List<String> changes = new ArrayList<>();
@@ -124,7 +126,7 @@ public class RentalUnitService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         RentalUnit unit = rentalUnitRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Rental unit not found"));
+                .orElseThrow(() -> new NotFoundException("Rental unit not found"));
         propertyAccessGuard.assertCanAccess(unit.getProperty().getId());
 
         UUID propertyId = unit.getProperty().getId();
@@ -137,6 +139,6 @@ public class RentalUnitService {
 
     private Property resolveProperty(UUID propertyId, UUID landlordId) {
         return propertyRepository.findByIdAndLandlordId(propertyId, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Property not found"));
+                .orElseThrow(() -> new NotFoundException("Property not found"));
     }
 }

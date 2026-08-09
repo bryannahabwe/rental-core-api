@@ -71,7 +71,7 @@ public class RentalAgreementController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER')")
     public ResponseEntity<RentalAgreementResponse> updateAgreement(
             @PathVariable UUID id,
-            @RequestBody RentalAgreementRequest request) {
+            @Valid @RequestBody RentalAgreementRequest request) {
         return ResponseEntity.ok(agreementService.updateAgreement(id, request));
     }
 

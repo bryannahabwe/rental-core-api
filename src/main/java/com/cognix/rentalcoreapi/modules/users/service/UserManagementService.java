@@ -18,6 +18,8 @@ import com.cognix.rentalcoreapi.modules.users.dto.UpdateUserRequest;
 import com.cognix.rentalcoreapi.modules.users.dto.UserResponse;
 import com.cognix.rentalcoreapi.modules.users.model.UserPropertyAssignment;
 import com.cognix.rentalcoreapi.modules.users.repository.UserPropertyAssignmentRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import lombok.RequiredArgsConstructor;
@@ -70,7 +72,7 @@ public class UserManagementService {
             return supportProfile();
         }
         User me = userRepository.findById(JwtUtils.getCurrentUserId())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
         return toResponse(me);
     }
 
@@ -97,13 +99,13 @@ public class UserManagementService {
             throw new AccessDeniedException("Support sessions have no profile to edit");
         }
         User me = userRepository.findById(JwtUtils.getCurrentUserId())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         // Reject a phone number already taken by a different user.
         userRepository.findByPhoneNumber(request.phoneNumber())
                 .filter(other -> !other.getId().equals(me.getId()))
                 .ifPresent(other -> {
-                    throw new IllegalArgumentException(
+                    throw new ConflictException(
                             "A user with this phone number already exists: " + request.phoneNumber());
                 });
 
@@ -133,12 +135,12 @@ public class UserManagementService {
         assertCanAssignRoles(accountRole, assignments);
 
         if (userRepository.existsByEmail(request.email())) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "A user with this email already exists: " + request.email());
         }
 
         if (userRepository.existsByPhoneNumber(request.phoneNumber())) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "A user with this phone number already exists: " + request.phoneNumber());
         }
 
@@ -174,7 +176,7 @@ public class UserManagementService {
         User user = loadManageableUser(id, account);
 
         if (user.getStatus() != UserStatus.INVITED) {
-            throw new IllegalArgumentException(user.getStatus() == UserStatus.ACTIVE
+            throw new ConflictException(user.getStatus() == UserStatus.ACTIVE
                     ? "This user has already accepted their invitation"
                     : "Cannot resend an invitation to a deactivated user");
         }
@@ -201,7 +203,7 @@ public class UserManagementService {
         userRepository.findByPhoneNumber(request.phoneNumber())
                 .filter(other -> !other.getId().equals(user.getId()))
                 .ifPresent(other -> {
-                    throw new IllegalArgumentException(
+                    throw new ConflictException(
                             "A user with this phone number already exists: " + request.phoneNumber());
                 });
 
@@ -259,6 +261,56 @@ public class UserManagementService {
 
         auditWriter.record(AuditModule.USER, AuditAction.DEACTIVATE, null, user.getName(),
                 "%s deactivated %s.".formatted(JwtUtils.getCurrentUserName(), user.getName()));
+    }
+
+    /**
+     * Hands account ownership to another user: the target is promoted to
+     * SUPER_ADMIN and the current owner is demoted to ADMIN, in one transaction.
+     * Without this the SUPER_ADMIN role is immovable and an account is stranded
+     * if its original registrant leaves.
+     *
+     * <p>The account anchor ({@code accountOwnerId}, carried on every row) is
+     * deliberately left untouched — it is a stable data key, not a live pointer
+     * to whoever currently holds the owner role, and repointing it would mean
+     * rewriting every row in the account.
+     *
+     * <p>The target must already be an active ADMIN, so promotion is a
+     * deliberate two-step (raise to ADMIN, then transfer) rather than reachable
+     * from any role in one move. The demotion takes effect on the old owner's
+     * next login/refresh, since the role is read from the token per request.
+     */
+    @Transactional
+    public void transferOwnership(UUID targetUserId) {
+        UUID account = JwtUtils.getCurrentLandlordId();
+
+        User currentOwner = userRepository.findById(JwtUtils.getCurrentUserId())
+                .orElseThrow(() -> new NotFoundException("Current user not found"));
+        if (currentOwner.getRole() != UserRole.SUPER_ADMIN) {
+            throw new AccessDeniedException("Only the account owner can transfer ownership");
+        }
+
+        User target = userRepository.findByIdAndAccountOwnerId(targetUserId, account)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        if (target.getId().equals(currentOwner.getId())) {
+            throw new ConflictException("You already own this account");
+        }
+        if (target.getStatus() != UserStatus.ACTIVE) {
+            throw new ConflictException("Ownership can only be transferred to an active user");
+        }
+        if (target.getRole() != UserRole.ADMIN) {
+            throw new ConflictException(
+                    "The new owner must be an admin first — promote them to admin, then transfer");
+        }
+
+        target.setRole(UserRole.SUPER_ADMIN);
+        currentOwner.setRole(UserRole.ADMIN);
+        userRepository.save(target);
+        userRepository.save(currentOwner);
+
+        auditWriter.record(AuditModule.USER, AuditAction.TRANSFER_OWNERSHIP, null, target.getName(),
+                "%s transferred account ownership to %s.".formatted(
+                        currentOwner.getName(), target.getName()));
     }
 
     // ── Guards ────────────────────────────────────────────────────────────
@@ -325,7 +377,7 @@ public class UserManagementService {
     /** Loads a user in the caller's account and checks the caller outranks them. */
     private User loadManageableUser(UUID id, UUID account) {
         User user = userRepository.findByIdAndAccountOwnerId(id, account)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
         if (JwtUtils.getCurrentRole() == UserRole.ADMIN && user.getRole().isAdmin()) {
             throw new AccessDeniedException("Admins can only manage property managers");
         }
@@ -410,7 +462,7 @@ public class UserManagementService {
                 continue;
             }
             if (!propertyRepository.existsByIdAndLandlordId(assignment.propertyId(), account)) {
-                throw new IllegalArgumentException("Property not found: " + assignment.propertyId());
+                throw new NotFoundException("Property not found: " + assignment.propertyId());
             }
             assignmentRepository.save(UserPropertyAssignment.builder()
                     .userId(user.getId())

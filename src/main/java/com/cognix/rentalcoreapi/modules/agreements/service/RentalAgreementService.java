@@ -17,6 +17,8 @@ import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
@@ -66,7 +68,7 @@ public class RentalAgreementService {
     public RentalAgreementResponse getAgreement(UUID id) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+                .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
         return RentalAgreementResponse.from(agreement);
     }
@@ -76,11 +78,11 @@ public class RentalAgreementService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         var unit = unitRepository.findByIdAndLandlordId(request.unitId(), landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Unit not found"));
+                .orElseThrow(() -> new NotFoundException("Unit not found"));
         propertyAccessGuard.assertCanAccess(unit.getProperty().getId());
 
         var tenant = tenantRepository.findByIdAndLandlordId(request.tenantId(), landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Tenant not found"));
+                .orElseThrow(() -> new NotFoundException("Tenant not found"));
 
         // Tenant and unit must live in the same property — an agreement's
         // property is derived from the unit, so a cross-property pairing would
@@ -92,7 +94,7 @@ public class RentalAgreementService {
         }
 
         if (agreementRepository.existsByUnitIdAndStatus(request.unitId(), AgreementStatus.ACTIVE)) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "Unit " + unit.getRoomNumber() + " already has an active agreement");
         }
 
@@ -156,11 +158,11 @@ public class RentalAgreementService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+                .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         if (agreement.getStatus() == AgreementStatus.TERMINATED) {
-            throw new IllegalArgumentException("Agreement is already terminated");
+            throw new ConflictException("Agreement is already terminated");
         }
 
         if (agreement.getStartDate() != null
@@ -192,7 +194,7 @@ public class RentalAgreementService {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
         RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+                .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         var oldRent = agreement.getRentAmount();
@@ -245,7 +247,7 @@ public class RentalAgreementService {
 
         RentalAgreement agreement = agreementRepository
                 .findByIdAndLandlordId(agreementId, landlordId)
-                .orElseThrow(() -> new IllegalArgumentException("Agreement not found"));
+                .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         return computeCycleStatuses(agreement);

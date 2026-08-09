@@ -53,7 +53,10 @@ public class SecurityConfig {
                                 // /platform requires a PLATFORM token, and a
                                 // PLATFORM token reaches no customer data.
                                 "/platform/auth/login",
+                                // API docs: the UI, its static assets, the
+                                // /swagger-ui.html redirect target, and the spec.
                                 "/swagger-ui/**",
+                                "/swagger-ui.html",
                                 "/v3/api-docs/**"
                         ).permitAll()
                         // Platform staff only, and a PLATFORM token grants

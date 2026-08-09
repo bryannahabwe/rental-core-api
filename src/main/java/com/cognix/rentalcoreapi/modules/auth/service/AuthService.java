@@ -15,8 +15,11 @@ import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
+import com.cognix.rentalcoreapi.modules.settings.service.LandlordSettingsService;
 import com.cognix.rentalcoreapi.modules.users.model.UserPropertyAssignment;
 import com.cognix.rentalcoreapi.modules.users.repository.UserPropertyAssignmentRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,15 +43,16 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final AuditWriter auditWriter;
+    private final LandlordSettingsService landlordSettingsService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByPhoneNumber(request.phoneNumber())) {
-            throw new IllegalArgumentException("Phone number already registered");
+            throw new ConflictException("Phone number already registered");
         }
 
         if (request.email() != null && userRepository.existsByEmail(request.email())) {
-            throw new IllegalArgumentException("Email already registered");
+            throw new ConflictException("Email already registered");
         }
 
         // The registrant is the account owner: SUPER_ADMIN, active, anchoring
@@ -79,6 +83,10 @@ public class AuthService {
                 .name(propertyName)
                 .build());
 
+        // Provision the settings row now so reading settings later never writes
+        // (a read-only ACCOUNTANT must be able to GET /settings without an INSERT).
+        landlordSettingsService.provisionFor(user);
+
         // Explicit actor: there is no security context during registration.
         auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.REGISTER,
                 accountId, user.getId(), user.getName(), null, user.getUsername(),
@@ -107,7 +115,7 @@ public class AuthService {
         }
 
         User user = userRepository.findByUsername(request.username())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.LOGIN,
                 user.getAccountOwnerId(), user.getId(), user.getName(), null, null,
@@ -125,7 +133,7 @@ public class AuthService {
 
         User user = userRepository
                 .findByUsername(jwtService.extractUsername(token))
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
         return buildAuthResponse(user);
     }
@@ -180,15 +188,15 @@ public class AuthService {
     private User loadInvitedUser(String token) {
         JwtService.InviteToken invite = jwtService.validateInviteToken(token);
         User user = userRepository.findById(invite.userId())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid invite link"));
+                .orElseThrow(() -> new NotFoundException("Invalid invite link"));
         if (user.getStatus() != UserStatus.INVITED) {
-            throw new IllegalArgumentException("This invitation has already been accepted");
+            throw new ConflictException("This invitation has already been accepted");
         }
         // Reject links superseded by a resend (or already consumed): only the
         // user's current token version is valid.
         if (user.getInviteTokenVersion() == null
                 || !user.getInviteTokenVersion().equals(invite.version())) {
-            throw new IllegalArgumentException(
+            throw new ConflictException(
                     "This invite link is no longer valid — a newer invitation has been sent");
         }
         return user;

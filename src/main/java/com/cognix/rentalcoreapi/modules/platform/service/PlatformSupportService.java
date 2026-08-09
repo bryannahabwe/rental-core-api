@@ -11,6 +11,8 @@ import com.cognix.rentalcoreapi.modules.platform.model.SupportSession;
 import com.cognix.rentalcoreapi.modules.platform.repository.PlatformUserRepository;
 import com.cognix.rentalcoreapi.modules.platform.repository.SupportSessionRepository;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
+import com.cognix.rentalcoreapi.shared.exception.ConflictException;
+import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -110,7 +112,7 @@ public class PlatformSupportService {
 
         User owner = userRepository.findById(request.accountId())
                 .filter(u -> u.getId().equals(u.getAccountOwnerId()))
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new NotFoundException(
                         "No such account — the id must be an account owner's user id"));
 
         int minutes = Math.min(
@@ -148,13 +150,13 @@ public class PlatformSupportService {
         PlatformUser staff = activeStaff(platformUserId);
 
         SupportSession session = supportSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("Support session not found"));
+                .orElseThrow(() -> new NotFoundException("Support session not found"));
 
         if (!session.getPlatformUserId().equals(staff.getId())) {
             throw new AccessDeniedException("You can only end your own support sessions");
         }
         if (session.getEndedAt() != null) {
-            throw new IllegalArgumentException("This session has already ended");
+            throw new ConflictException("This session has already ended");
         }
 
         session.setEndedAt(LocalDateTime.now());

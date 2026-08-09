@@ -4,6 +4,7 @@ import com.cognix.rentalcoreapi.modules.audit.AuditDiff;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
+import com.cognix.rentalcoreapi.modules.auth.model.User;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.settings.dto.LandlordSettingsRequest;
 import com.cognix.rentalcoreapi.modules.settings.dto.LandlordSettingsResponse;
@@ -30,13 +31,17 @@ public class LandlordSettingsService {
     private final AuditWriter auditWriter;
 
     /**
-     * Get settings — auto-creates defaults if none exist yet.
+     * Get settings. Read-only: accounts are provisioned a settings row at
+     * registration, so this normally just reads it. If none exists (a legacy
+     * account predating provisioning), we return transient defaults rather than
+     * writing — a GET must not INSERT, otherwise the read-only ACCOUNTANT role
+     * would trigger a write just by opening this page.
      */
     public LandlordSettingsResponse getSettings() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         LandlordSettings settings = settingsRepository
                 .findByLandlordId(landlordId)
-                .orElseGet(() -> createDefaults(landlordId));
+                .orElseGet(() -> LandlordSettings.builder().build());
         return LandlordSettingsResponse.from(settings);
     }
 
@@ -123,8 +128,10 @@ public class LandlordSettingsService {
     @Transactional
     public String getNextReceiptNumber() {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
+        // Row-locked: the read-modify-write below must be serialised so two
+        // concurrent receipts cannot draw the same number.
         LandlordSettings settings = settingsRepository
-                .findByLandlordId(landlordId)
+                .findByLandlordIdForUpdate(landlordId)
                 .orElseGet(() -> createDefaults(landlordId));
 
         int number = settings.getNextReceiptNo();
@@ -141,6 +148,18 @@ public class LandlordSettingsService {
                 "%s issued receipt number %s.".formatted(JwtUtils.getCurrentUserName(), formatted));
 
         return formatted;
+    }
+
+    /**
+     * Provision the default settings row for a freshly-registered account owner.
+     * Called from the registration transaction so that {@link #getSettings()}
+     * never has to write. Idempotent: no-op if a row already exists.
+     */
+    @Transactional
+    public void provisionFor(User owner) {
+        if (settingsRepository.findByLandlordId(owner.getId()).isEmpty()) {
+            settingsRepository.save(LandlordSettings.builder().landlord(owner).build());
+        }
     }
 
     // ── Private ──────────────────────────────────────────
