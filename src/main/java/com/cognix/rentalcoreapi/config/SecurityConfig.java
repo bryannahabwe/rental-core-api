@@ -59,7 +59,11 @@ public class SecurityConfig {
                                 // /swagger-ui.html redirect target, and the spec.
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**"
+                                "/v3/api-docs/**",
+                                // Container HEALTHCHECK probes this; only the
+                                // health endpoint is web-exposed, nothing else.
+                                "/actuator/health",
+                                "/actuator/health/**"
                         ).permitAll()
                         // Platform staff only, and a PLATFORM token grants
                         // nothing outside this path.
