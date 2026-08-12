@@ -46,6 +46,7 @@ public class RentalAgreementService {
     private final PaymentRepository paymentRepository;
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
+    private final AgreementBalanceCalculator balanceCalculator;
 
     public PagedResponse<RentalAgreementResponse> getAllAgreements(
             Pageable pageable, String search, AgreementStatus status) {
@@ -171,6 +172,46 @@ public class RentalAgreementService {
                     "Move out date cannot be before the agreement start date");
         }
 
+        // ── Security-deposit settlement (optional) ───────────────────────────
+        // Validate against the balance BEFORE any mutation, so "outstanding"
+        // matches what the move-out screen showed the user.
+        BigDecimal deposit = nz(agreement.getDepositAmount());
+        BigDecimal applied = nz(request.depositApplied());
+        BigDecimal refunded = nz(request.depositRefunded());
+        BigDecimal forfeited = nz(request.depositForfeited());
+        boolean settling = applied.signum() > 0 || refunded.signum() > 0 || forfeited.signum() > 0;
+
+        if (settling) {
+            if (deposit.signum() == 0) {
+                throw new IllegalArgumentException(
+                        "No deposit is held on this agreement to settle");
+            }
+            if (applied.add(refunded).add(forfeited).compareTo(deposit) != 0) {
+                throw new IllegalArgumentException(
+                        "Applied, refunded and forfeited amounts must add up to the held deposit of "
+                                + deposit.toPlainString());
+            }
+            BigDecimal outstanding = balanceCalculator
+                    .summarize(agreement, computeCycleStatuses(agreement))
+                    .outstanding();
+            if (applied.compareTo(outstanding) > 0) {
+                throw new IllegalArgumentException(
+                        "Cannot apply more than the outstanding balance of "
+                                + outstanding.toPlainString());
+            }
+
+            // Applying to the balance = adding a credit to openingBalance, the
+            // same knob PaymentService uses to pay down arrears. The computed
+            // balance shrinks automatically; no payment row is created, so the
+            // applied deposit is (correctly) not counted as rental revenue.
+            if (applied.signum() > 0) {
+                agreement.setOpeningBalance(agreement.getOpeningBalance().add(applied));
+            }
+            agreement.setDepositApplied(applied);
+            agreement.setDepositRefunded(refunded);
+            agreement.setDepositForfeited(forfeited);
+        }
+
         agreement.setMoveOutDate(request.moveOutDate());
         agreement.setStatus(AgreementStatus.TERMINATED);
 
@@ -186,7 +227,20 @@ public class RentalAgreementService {
                         JwtUtils.getCurrentUserName(), agreement.getTenant().getName(),
                         unit.getRoomNumber()));
 
+        if (settling) {
+            auditWriter.record(AuditModule.RENTAL_AGREEMENT, AuditAction.SETTLE_DEPOSIT,
+                    agreement.getProperty().getId(), agreement.getTenant().getName(),
+                    "%s settled the deposit for %s: applied %s, refunded %s, forfeited %s.".formatted(
+                            JwtUtils.getCurrentUserName(), agreement.getTenant().getName(),
+                            applied.toPlainString(), refunded.toPlainString(),
+                            forfeited.toPlainString()));
+        }
+
         return RentalAgreementResponse.from(saved);
+    }
+
+    private static BigDecimal nz(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     @Transactional
@@ -309,12 +363,16 @@ public class RentalAgreementService {
                 status = "UNPAID";
             }
 
+            boolean due = BillingCycleUtils.isDue(
+                    agreement.getBillingModel(), cycleStart, cycleEnd, LocalDate.now());
+
             cycles.add(new CycleStatusResponse(
                     cycleStart,
                     cycleEnd,
                     expectedAmount,
                     paidAmount,
-                    status
+                    status,
+                    due
             ));
 
             // Advance to next cycle

@@ -31,7 +31,7 @@ public class PropertyController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<PropertyResponse> createProperty(
             @Valid @RequestBody PropertyRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)

@@ -48,6 +48,17 @@ public class RentalAgreement extends BaseEntity {
     @Column(precision = 12, scale = 2)
     private BigDecimal depositAmount;
 
+    // How the security deposit was settled at move-out. Null until settled;
+    // when set, the three parts sum to depositAmount.
+    @Column(precision = 12, scale = 2)
+    private BigDecimal depositApplied;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal depositRefunded;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal depositForfeited;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AgreementStatus status;

@@ -50,6 +50,12 @@ public class User extends BaseEntity implements UserDetails {
     @Column
     private UUID inviteTokenVersion;
 
+    // Rotated each time a password reset is requested so older reset links stop
+    // working — only the newest link is valid. Set when a reset is requested and
+    // cleared once the password is reset (making the link single-use).
+    @Column
+    private UUID resetTokenVersion;
+
     // The account this user belongs to = the owner user's id. For the owner
     // this equals their own id. This is the anchor every data row is scoped to
     // (persisted as landlord_id elsewhere), so a manager acting on data writes

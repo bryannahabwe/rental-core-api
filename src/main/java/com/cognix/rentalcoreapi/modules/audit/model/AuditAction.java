@@ -19,6 +19,8 @@ public enum AuditAction {
     ROLE_CHANGE,
     TRANSFER_OWNERSHIP,
     PROFILE_UPDATE,
+    PASSWORD_RESET,
+    SETTLE_DEPOSIT,
     // Cognix staff opening/closing read-only access to a customer account.
     // Recorded against the CUSTOMER's account, so it appears in their own
     // activity feed — they see who looked, when, and why, without asking.

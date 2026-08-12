@@ -183,7 +183,12 @@ public class PaymentService {
                 .periodStartDate(nextCycleStart)
                 .periodEndDate(nextCycleEnd)
                 .expectedAmount(expectedAmount)
-                .overpayment(remainingOverpayment)
+                // This row's `amount` is already the credit for THIS cycle
+                // (capped at one month's rent). Any leftover is carried by the
+                // NEXT rollover row below — NOT by this row's overpayment. Storing
+                // it here would make `amount - overpayment` (the per-cycle
+                // retained figure) net to zero for every middle cycle.
+                .overpayment(BigDecimal.ZERO)
                 .source(PaymentSource.ROLLOVER)
                 .reference("Rollover from " + nextCycleStart.minusDays(1))
                 .notes(null)

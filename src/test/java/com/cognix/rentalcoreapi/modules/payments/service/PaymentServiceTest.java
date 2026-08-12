@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -147,6 +148,26 @@ class PaymentServiceTest {
         assertThat(rollover.getOverpayment()).isEqualByComparingTo(BigDecimal.ZERO);
         // Next cycle begins the day after this cycle ended.
         assertThat(rollover.getPeriodStartDate()).isEqualTo(CYCLE_END.plusDays(1));
+    }
+
+    @Test
+    void multiCycleOverpayment_eachRolloverRowKeepsOneMonthAndCarriesNoOverpayment() {
+        // Pay three months at once (the reported scenario: 600k against 200k
+        // rent). The source cycle keeps one month; the surplus chains through
+        // two rollover cycles. Each rollover row's amount is exactly one month
+        // and its overpayment is 0 — so retained (amount - overpayment) is one
+        // month's rent on every cycle and the middle cycle never collapses to 0.
+        paymentService.recordPayment(
+                request(RENT.multiply(BigDecimal.valueOf(3)), CYCLE_START, CYCLE_END));
+
+        ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository, times(2)).save(captor.capture());
+
+        for (Payment rollover : captor.getAllValues()) {
+            assertThat(rollover.getSource()).isEqualTo(PaymentSource.ROLLOVER);
+            assertThat(rollover.getAmount()).isEqualByComparingTo(RENT);
+            assertThat(rollover.getOverpayment()).isEqualByComparingTo(BigDecimal.ZERO);
+        }
     }
 
     @Test

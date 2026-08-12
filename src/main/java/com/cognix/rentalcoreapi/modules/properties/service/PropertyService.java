@@ -96,6 +96,9 @@ public class PropertyService {
         Property property = propertyRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new NotFoundException("Property not found"));
 
+        // A scoped admin may edit only properties assigned to them.
+        propertyAccessGuard.assertCanAccess(property.getId());
+
         if (!property.getName().equals(request.name())
                 && propertyRepository.existsByNameAndLandlordId(request.name(), landlordId)) {
             throw new ConflictException(

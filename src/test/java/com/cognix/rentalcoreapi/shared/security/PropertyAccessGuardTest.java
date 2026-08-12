@@ -51,13 +51,23 @@ class PropertyAccessGuardTest {
 
     @Test
     void accountWideRoleIgnoresTheActiveProperty() {
-        assertThat(guard.effectiveRoleFor(USER, UserRole.ADMIN, KIREKA))
-                .isEqualTo(UserRole.ADMIN);
+        // ACCOUNTANT (and SUPER_ADMIN) stay account-wide; ADMIN is now scoped.
+        assertThat(guard.effectiveRoleFor(USER, UserRole.ACCOUNTANT, KIREKA))
+                .isEqualTo(UserRole.ACCOUNTANT);
         assertThat(guard.effectiveRoleFor(USER, UserRole.ACCOUNTANT, null))
                 .isEqualTo(UserRole.ACCOUNTANT);
 
         // Account-wide roles must not cost a lookup on every request.
         verify(assignmentRepository, never()).findRoleByUserIdAndPropertyId(any(), any());
+    }
+
+    @Test
+    void scopedAdminTakesTheAdminRoleAtItsAssignedProperty() {
+        when(assignmentRepository.findRoleByUserIdAndPropertyId(USER, KIREKA))
+                .thenReturn(Optional.of(UserRole.ADMIN));
+
+        assertThat(guard.effectiveRoleFor(USER, UserRole.ADMIN, KIREKA))
+                .isEqualTo(UserRole.ADMIN);
     }
 
     @Test
@@ -125,9 +135,39 @@ class PropertyAccessGuardTest {
         assertThat(guard.requireAccessibleProperty()).isNull(); // the all-properties aggregate
     }
 
+    @Test
+    void scopedAdminIsRestrictedToAssignedPropertiesLikeAManager() {
+        authenticateAs(UserRole.ADMIN);
+        when(assignmentRepository.existsByUserIdAndPropertyId(USER, KIREKA)).thenReturn(true);
+        when(assignmentRepository.existsByUserIdAndPropertyId(USER, SOMEONE_ELSES))
+                .thenReturn(false);
+
+        assertThatCode(() -> guard.assertCanAccess(KIREKA)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> guard.assertCanAccess(SOMEONE_ELSES))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void supportSessionReadsAccountWideDespiteScopedAdminRole() {
+        authenticateAsSupport(UserRole.ADMIN);
+
+        // No assignment rows, ADMIN is scoped — but support bypasses the guard.
+        assertThatCode(() -> guard.assertCanAccess(SOMEONE_ELSES)).doesNotThrowAnyException();
+        assertThat(guard.requireAccessibleProperty()).isNull(); // all-properties aggregate
+    }
+
     private void authenticateAs(UserRole role) {
-        AuthenticatedUser principal = new AuthenticatedUser(
-                UUID.randomUUID(), USER, role, "Test User", "+256700000000");
+        authenticate(new AuthenticatedUser(
+                UUID.randomUUID(), USER, role, "Test User", "+256700000000"));
+    }
+
+    private void authenticateAsSupport(UserRole role) {
+        authenticate(new AuthenticatedUser(
+                UUID.randomUUID(), USER, role, "Support Staff", "support@example.com",
+                UUID.randomUUID()));
+    }
+
+    private void authenticate(AuthenticatedUser principal) {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
                         principal, null, principal.getAuthorities()));

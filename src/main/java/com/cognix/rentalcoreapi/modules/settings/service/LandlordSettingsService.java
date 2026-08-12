@@ -156,9 +156,14 @@ public class LandlordSettingsService {
      * never has to write. Idempotent: no-op if a row already exists.
      */
     @Transactional
-    public void provisionFor(User owner) {
+    public void provisionFor(User owner, String companyName) {
         if (settingsRepository.findByLandlordId(owner.getId()).isEmpty()) {
-            settingsRepository.save(LandlordSettings.builder().landlord(owner).build());
+            String seed = (companyName != null && !companyName.isBlank())
+                    ? companyName.trim() : null;
+            settingsRepository.save(LandlordSettings.builder()
+                    .landlord(owner)
+                    .companyName(seed)
+                    .build());
         }
     }
 

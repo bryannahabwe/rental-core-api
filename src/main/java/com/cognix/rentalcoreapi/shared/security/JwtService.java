@@ -28,7 +28,13 @@ public class JwtService {
     @Value("${app.jwt.invite-expiry-ms:259200000}")
     private long inviteExpiryMs;
 
+    // Password-reset links are short-lived (default 1h).
+    @Value("${app.jwt.reset-expiry-ms:3600000}")
+    private long resetExpiryMs;
+
     private static final String PURPOSE_INVITE = "INVITE";
+
+    private static final String PURPOSE_RESET = "PASSWORD_RESET";
 
     /** Cognix staff authenticated as themselves. Reaches {@code /platform/**}
      *  and no customer data whatsoever. */
@@ -42,6 +48,12 @@ public class JwtService {
      *  version it represents (compared against the user's current version so
      *  superseded links can be rejected). */
     public record InviteToken(UUID userId, UUID version) {
+    }
+
+    /** The identity carried by a password-reset token: who it's for and which
+     *  issued version it represents (compared against the user's current
+     *  version so used or superseded links can be rejected). */
+    public record ResetToken(UUID userId, UUID version) {
     }
 
     /** The identity carried by a platform token. */
@@ -116,6 +128,46 @@ public class JwtService {
         String versionClaim = claims.get("inviteVersion", String.class);
         UUID version = versionClaim != null ? UUID.fromString(versionClaim) : null;
         return new InviteToken(userId, version);
+    }
+
+    /**
+     * A short-lived link for resetting a forgotten password. Carries
+     * {@code purpose=PASSWORD_RESET} so {@link #isTokenValid} refuses it for
+     * ordinary requests, and a {@code resetVersion} the caller compares against
+     * the user's current version to reject used or superseded links.
+     */
+    public String generatePasswordResetToken(UUID userId, String email, UUID resetVersion) {
+        return Jwts.builder()
+                .subject(email)
+                .claim("userId", userId.toString())
+                .claim("purpose", PURPOSE_RESET)
+                .claim("resetVersion", resetVersion.toString())
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + resetExpiryMs))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    /**
+     * Validates a password-reset token and returns its {@link ResetToken}
+     * identity. Throws if expired, tampered, or not a reset-purpose token. The
+     * caller must still check {@link ResetToken#version()} against the user's
+     * current version to reject used or superseded links.
+     */
+    public ResetToken validatePasswordResetToken(String token) {
+        Claims claims;
+        try {
+            claims = extractClaims(token);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid or expired reset link");
+        }
+        if (!PURPOSE_RESET.equals(claims.get("purpose", String.class))) {
+            throw new IllegalArgumentException("Invalid reset link");
+        }
+        UUID userId = UUID.fromString(claims.get("userId", String.class));
+        String versionClaim = claims.get("resetVersion", String.class);
+        UUID version = versionClaim != null ? UUID.fromString(versionClaim) : null;
+        return new ResetToken(userId, version);
     }
 
     // ── Platform support ──────────────────────────────────────────────────

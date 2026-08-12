@@ -8,6 +8,7 @@ public record CycleStatusResponse(
         LocalDate periodEndDate,
         BigDecimal expectedAmount,
         BigDecimal paidAmount,
-        String status  // PAID / PARTIAL / UNPAID
+        String status,  // PAID / PARTIAL / UNPAID
+        boolean due     // false = a future cycle offered only for paying ahead, not owed yet
 ) {
 }

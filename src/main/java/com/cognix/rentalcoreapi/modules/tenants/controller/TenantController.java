@@ -83,7 +83,7 @@ public class TenantController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<Void> deleteTenant(@PathVariable UUID id) {
         tenantService.deleteTenant(id);
         return ResponseEntity.noContent().build();

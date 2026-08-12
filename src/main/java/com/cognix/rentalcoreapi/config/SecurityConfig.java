@@ -49,6 +49,8 @@ public class SecurityConfig {
                                 "/auth/refresh",
                                 "/auth/accept-invite",
                                 "/auth/invite/**",
+                                "/auth/request-password-reset",
+                                "/auth/reset-password",
                                 // Cognix staff sign-in. Everything else under
                                 // /platform requires a PLATFORM token, and a
                                 // PLATFORM token reaches no customer data.

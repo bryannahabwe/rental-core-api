@@ -2,10 +2,12 @@ package com.cognix.rentalcoreapi.modules.auth.service;
 
 import com.cognix.rentalcoreapi.modules.auth.dto.AcceptInviteRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.AuthResponse;
+import com.cognix.rentalcoreapi.modules.auth.dto.ForgotPasswordRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.InviteInfoResponse;
 import com.cognix.rentalcoreapi.modules.auth.dto.LoginRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.RefreshRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.RegisterRequest;
+import com.cognix.rentalcoreapi.modules.auth.dto.ResetPasswordRequest;
 import com.cognix.rentalcoreapi.modules.auth.model.User;
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 import com.cognix.rentalcoreapi.modules.auth.model.UserStatus;
@@ -13,6 +15,7 @@ import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
+import com.cognix.rentalcoreapi.modules.notification.EmailService;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.settings.service.LandlordSettingsService;
@@ -22,7 +25,11 @@ import com.cognix.rentalcoreapi.shared.exception.ConflictException;
 import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.security.JwtService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
@@ -33,6 +40,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class AuthService {
 
@@ -44,6 +52,10 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final AuditWriter auditWriter;
     private final LandlordSettingsService landlordSettingsService;
+    private final EmailService emailService;
+
+    @Value("${app.frontend.url}")
+    private String frontendUrl;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -85,7 +97,10 @@ public class AuthService {
 
         // Provision the settings row now so reading settings later never writes
         // (a read-only ACCOUNTANT must be able to GET /settings without an INSERT).
-        landlordSettingsService.provisionFor(user);
+        // Seed the business name from what the owner entered at sign-up, so the
+        // Business Profile isn't blank and receipts/sidebar show their name
+        // rather than the platform fallback. They can rename it later.
+        landlordSettingsService.provisionFor(user, propertyName);
 
         // Explicit actor: there is no security context during registration.
         auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.REGISTER,
@@ -165,6 +180,89 @@ public class AuthService {
                 "%s accepted their invitation and joined.".formatted(user.getName()));
 
         return buildAuthResponse(user);
+    }
+
+    /**
+     * Public: begin a password reset. Looks the account up by email and, if it
+     * exists and is active, rotates a single-use reset version and emails a
+     * one-time link. Always succeeds silently regardless of whether the email
+     * matched — the endpoint must not reveal which emails are registered.
+     */
+    @Transactional
+    public void requestPasswordReset(ForgotPasswordRequest request) {
+        userRepository.findByEmail(request.email())
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .ifPresent(user -> {
+                    UUID version = UUID.randomUUID();
+                    user.setResetTokenVersion(version);
+                    userRepository.save(user);
+
+                    String token = jwtService.generatePasswordResetToken(
+                            user.getId(), user.getEmail(), version);
+                    String resetUrl = frontendUrl + "/reset-password?token=" + token;
+                    String recipient = user.getEmail();
+                    String name = user.getName();
+
+                    // Best-effort, after commit: a Brevo outage must not roll back
+                    // the version rotation, and there's nothing to report back.
+                    runAfterCommit(() -> {
+                        try {
+                            emailService.sendPasswordReset(recipient, name, resetUrl);
+                        } catch (Exception e) {
+                            log.warn("Password-reset email to {} failed to send: {}",
+                                    recipient, e.getMessage());
+                        }
+                    });
+                });
+    }
+
+    /** Public: consume the reset token, set a new password, and log in. */
+    @Transactional
+    public AuthResponse resetPassword(ResetPasswordRequest request) {
+        User user = loadResettableUser(request.token());
+
+        user.setPasswordHash(passwordEncoder.encode(request.password()));
+        // Consume the link: clear the version so it can't be replayed.
+        user.setResetTokenVersion(null);
+        userRepository.save(user);
+
+        auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.PASSWORD_RESET,
+                user.getAccountOwnerId(), user.getId(), user.getName(), null, user.getUsername(),
+                "%s reset their password.".formatted(user.getName()));
+
+        return buildAuthResponse(user);
+    }
+
+    private User loadResettableUser(String token) {
+        JwtService.ResetToken reset = jwtService.validatePasswordResetToken(token);
+        User user = userRepository.findById(reset.userId())
+                .orElseThrow(() -> new NotFoundException("Invalid reset link"));
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new ConflictException("This account cannot reset its password");
+        }
+        // Reject a used or superseded link: only the user's current reset version
+        // is valid, and it is cleared the moment a reset succeeds.
+        if (user.getResetTokenVersion() == null
+                || !user.getResetTokenVersion().equals(reset.version())) {
+            throw new ConflictException(
+                    "This reset link is no longer valid — request a new one");
+        }
+        return user;
+    }
+
+    /** Runs {@code action} after the surrounding transaction commits (or inline
+     *  if none), so a failed side-effect can't roll back the committed change. */
+    private void runAfterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     /**

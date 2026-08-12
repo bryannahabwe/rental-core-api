@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,6 +46,11 @@ public interface UserPropertyAssignmentRepository
     List<UserPropertyAssignment> findAssignmentsOrdered(@Param("userId") UUID userId);
 
     boolean existsByUserIdAndPropertyId(UUID userId, UUID propertyId);
+
+    /** Distinct users assigned to any of the given properties — used to scope a
+     *  property-scoped admin's view of staff to their own properties. */
+    @Query("SELECT DISTINCT a.userId FROM UserPropertyAssignment a WHERE a.propertyId IN :propertyIds")
+    List<UUID> findDistinctUserIdsByPropertyIdIn(@Param("propertyIds") Collection<UUID> propertyIds);
 
     void deleteByUserId(UUID userId);
 }

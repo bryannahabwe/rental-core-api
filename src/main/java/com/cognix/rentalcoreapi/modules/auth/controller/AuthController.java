@@ -2,10 +2,12 @@ package com.cognix.rentalcoreapi.modules.auth.controller;
 
 import com.cognix.rentalcoreapi.modules.auth.dto.AcceptInviteRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.AuthResponse;
+import com.cognix.rentalcoreapi.modules.auth.dto.ForgotPasswordRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.InviteInfoResponse;
 import com.cognix.rentalcoreapi.modules.auth.dto.LoginRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.RefreshRequest;
 import com.cognix.rentalcoreapi.modules.auth.dto.RegisterRequest;
+import com.cognix.rentalcoreapi.modules.auth.dto.ResetPasswordRequest;
 import com.cognix.rentalcoreapi.modules.auth.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -48,5 +50,20 @@ public class AuthController {
     public ResponseEntity<AuthResponse> acceptInvite(
             @Valid @RequestBody AcceptInviteRequest request) {
         return ResponseEntity.ok(authService.acceptInvite(request));
+    }
+
+    /** Begin a password reset. Always 200 — never reveals whether the email exists. */
+    @PostMapping("/request-password-reset")
+    public ResponseEntity<Void> requestPasswordReset(
+            @Valid @RequestBody ForgotPasswordRequest request) {
+        authService.requestPasswordReset(request);
+        return ResponseEntity.ok().build();
+    }
+
+    /** Complete a password reset with a one-time token; logs the user in. */
+    @PostMapping("/reset-password")
+    public ResponseEntity<AuthResponse> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request) {
+        return ResponseEntity.ok(authService.resetPassword(request));
     }
 }

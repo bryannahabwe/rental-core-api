@@ -30,6 +30,12 @@ public class PropertyAccessGuard {
      * assigned to {@code propertyId}. No-op for account-wide roles.
      */
     public void assertCanAccess(UUID propertyId) {
+        // Support staff read account-wide (and are held read-only by
+        // SupportReadOnlyFilter), even though their principal presents as ADMIN
+        // — which is now a property-scoped role.
+        if (JwtUtils.isSupportSession()) {
+            return;
+        }
         if (!JwtUtils.getCurrentRole().isPropertyScoped()) {
             return;
         }
@@ -55,7 +61,9 @@ public class PropertyAccessGuard {
      */
     public UUID requireAccessibleProperty() {
         UUID selected = JwtUtils.getCurrentPropertyId().orElse(null);
-        if (!JwtUtils.getCurrentRole().isPropertyScoped()) {
+        // Support sessions present as ADMIN (now property-scoped) but read
+        // account-wide, so they resolve like an account-wide role.
+        if (JwtUtils.isSupportSession() || !JwtUtils.getCurrentRole().isPropertyScoped()) {
             return selected;
         }
         if (selected != null) {

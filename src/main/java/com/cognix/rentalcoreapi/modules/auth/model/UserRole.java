@@ -44,6 +44,6 @@ public enum UserRole {
      * straight through {@code PropertyAccessGuard}.
      */
     public boolean isPropertyScoped() {
-        return this == PROPERTY_MANAGER || this == CARETAKER;
+        return this == ADMIN || this == PROPERTY_MANAGER || this == CARETAKER;
     }
 }

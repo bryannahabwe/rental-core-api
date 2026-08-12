@@ -64,7 +64,7 @@ public class RentalUnitController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<Void> deleteUnit(@PathVariable UUID id) {
         rentalUnitService.deleteUnit(id);
         return ResponseEntity.noContent().build();

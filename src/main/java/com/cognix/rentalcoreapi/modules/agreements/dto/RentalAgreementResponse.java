@@ -27,7 +27,10 @@ public record RentalAgreementResponse(
         TenantType tenantType,
         BigDecimal openingBalance,
         Integer billingDay,
-        BillingModel billingModel
+        BillingModel billingModel,
+        BigDecimal depositApplied,
+        BigDecimal depositRefunded,
+        BigDecimal depositForfeited
 ) {
     public static RentalAgreementResponse from(RentalAgreement a) {
         return new RentalAgreementResponse(
@@ -47,7 +50,10 @@ public record RentalAgreementResponse(
                 a.getTenantType(),
                 a.getOpeningBalance(),
                 a.getBillingDay(),
-                a.getBillingModel()
+                a.getBillingModel(),
+                a.getDepositApplied(),
+                a.getDepositRefunded(),
+                a.getDepositForfeited()
         );
     }
 }

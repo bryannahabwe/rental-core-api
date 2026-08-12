@@ -6,9 +6,9 @@ import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.agreements.dto.CycleStatusResponse;
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
-import com.cognix.rentalcoreapi.modules.agreements.model.BillingModel;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRepository;
+import com.cognix.rentalcoreapi.modules.agreements.service.AgreementBalanceCalculator;
 import com.cognix.rentalcoreapi.modules.agreements.service.RentalAgreementService;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
@@ -50,6 +50,7 @@ public class TenantService {
     private final RentalAgreementRepository agreementRepository;
     private final PaymentRepository paymentRepository;
     private final RentalAgreementService agreementService;
+    private final AgreementBalanceCalculator balanceCalculator;
     private final PropertyRepository propertyRepository;
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
@@ -194,10 +195,9 @@ public class TenantService {
                 .orElseThrow(() -> new NotFoundException(
                         "Tenant has no active agreement"));
 
-        BalanceSummary summary = computeBalanceSummary(agreement);
-
-        LocalDate today = LocalDate.now();
         List<CycleStatusResponse> rawCycles = agreementService.computeCycleStatuses(agreement);
+        AgreementBalanceCalculator.BalanceSummary summary =
+                balanceCalculator.summarize(agreement, rawCycles);
 
         List<Payment> allPayments = paymentRepository
                 .findAllByAgreementIdOrderByPaymentDateAscCreatedAtAsc(agreement.getId());
@@ -225,11 +225,7 @@ public class TenantService {
         int cashIdx = 0;
 
         for (CycleStatusResponse c : rawCycles) {
-            boolean due = agreement.getBillingModel() == BillingModel.ARREARS
-                    ? c.periodEndDate().isBefore(today)
-                    : !c.periodStartDate().isAfter(today);
-
-            if (due) {
+            if (c.due()) {
                 cumulativeExpected = cumulativeExpected.add(c.expectedAmount());
             }
 
@@ -243,7 +239,7 @@ public class TenantService {
 
             cycleEntries.add(new TenantLedgerResponse.CycleEntry(
                     c.periodStartDate(), c.periodEndDate(), c.expectedAmount(),
-                    c.paidAmount(), running, c.status(), due));
+                    c.paidAmount(), running, c.status(), c.due()));
         }
 
         // Most recent payment first for display, newest-created breaking ties on
@@ -299,60 +295,6 @@ public class TenantService {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private record BalanceSummary(
-            BigDecimal totalEverOwed,
-            BigDecimal totalEverPaid,
-            BigDecimal outstanding,
-            BigDecimal openingCredit,
-            BigDecimal openingArrears
-    ) {
-    }
-
-    private BalanceSummary computeBalanceSummary(RentalAgreement agreement) {
-        // Sum of rent for every cycle actually due so far — derived from the
-        // exact same per-cycle walk (computeCycleStatuses) the ledger and the
-        // Payments page cycle picker use, rather than a separate closed-form
-        // "cyclesElapsed × rent" formula. Two independent implementations of
-        // "how many cycles are owed" can drift apart on edge cases (e.g. they
-        // used to disagree for agreements with no explicit startDate); this
-        // way there's exactly one.
-        LocalDate today = LocalDate.now();
-        BigDecimal dueExpected = BigDecimal.ZERO;
-        for (CycleStatusResponse cycle : agreementService.computeCycleStatuses(agreement)) {
-            boolean due = agreement.getBillingModel() == BillingModel.ARREARS
-                    ? cycle.periodEndDate().isBefore(today)
-                    : !cycle.periodStartDate().isAfter(today);
-            if (due) {
-                dueExpected = dueExpected.add(cycle.expectedAmount());
-            }
-        }
-
-        // Apply opening balance
-        BigDecimal openingCredit = agreement.getOpeningBalance().max(BigDecimal.ZERO);
-        BigDecimal openingArrears = agreement.getOpeningBalance().min(BigDecimal.ZERO).abs();
-        BigDecimal totalEverOwed = dueExpected.subtract(openingCredit).add(openingArrears);
-
-        // Same cutoff the cycle walk above starts counting cycles from — a
-        // payment recorded for a period before this (a prior arrangement,
-        // stray data entry, an import) was never counted as owed above, so
-        // it must not be allowed to silently cancel out arrears on a later,
-        // actually-due cycle. Also subtract overpayment already re-recorded
-        // via rollover rows, so a lump-sum payment isn't credited twice
-        // (once on the original CASH row, again on the ROLLOVER rows it spawned).
-        LocalDate cutoff = BillingCycleUtils.effectiveStartDate(agreement);
-        BigDecimal totalEverPaid = paymentRepository
-                .sumByAgreementFromDate(agreement.getId(), cutoff)
-                .subtract(paymentRepository.sumOverpaymentByAgreementAndSourceFromDate(
-                        agreement.getId(), PaymentSource.CASH, cutoff));
-
-        // Outstanding
-        BigDecimal outstanding = totalEverOwed.subtract(totalEverPaid)
-                .max(BigDecimal.ZERO);
-
-        return new BalanceSummary(
-                totalEverOwed, totalEverPaid, outstanding, openingCredit, openingArrears);
-    }
-
     private TenantResponse enrichWithBalance(Tenant tenant, UUID landlordId) {
 
         Optional<RentalAgreement> activeAgreement = agreementRepository
@@ -365,7 +307,8 @@ public class TenantService {
 
         RentalAgreement agreement = activeAgreement.get();
 
-        BalanceSummary summary = computeBalanceSummary(agreement);
+        AgreementBalanceCalculator.BalanceSummary summary = balanceCalculator.summarize(
+                agreement, agreementService.computeCycleStatuses(agreement));
         BigDecimal outstanding = summary.outstanding();
         BigDecimal openingArrears = summary.openingArrears();
         BigDecimal totalEverOwed = summary.totalEverOwed();

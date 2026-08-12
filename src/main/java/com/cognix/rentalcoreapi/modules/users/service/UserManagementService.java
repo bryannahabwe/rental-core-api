@@ -57,10 +57,22 @@ public class UserManagementService {
 
     public List<UserResponse> listUsers() {
         UUID account = JwtUtils.getCurrentLandlordId();
-        return userRepository.findAllByAccountOwnerIdOrderByCreatedAtAsc(account)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        List<User> users = userRepository.findAllByAccountOwnerIdOrderByCreatedAtAsc(account);
+
+        // A scoped admin (not the owner) sees only staff who share one of their
+        // properties, plus themselves. The owner sees the whole account.
+        if (JwtUtils.getCurrentRole() == UserRole.ADMIN) {
+            UUID me = JwtUtils.getCurrentUserId();
+            List<UUID> myProperties = assignmentRepository.findPropertyIdsByUserId(me);
+            Set<UUID> visible = new HashSet<>();
+            visible.add(me);
+            if (!myProperties.isEmpty()) {
+                visible.addAll(assignmentRepository.findDistinctUserIdsByPropertyIdIn(myProperties));
+            }
+            users = users.stream().filter(u -> visible.contains(u.getId())).toList();
+        }
+
+        return users.stream().map(this::toResponse).toList();
     }
 
     public UserResponse getMe() {
@@ -346,6 +358,10 @@ public class UserManagementService {
         if (!requested.isPropertyScoped()) {
             return requested;
         }
+        // Highest role held at any property wins: ADMIN > PROPERTY_MANAGER > CARETAKER.
+        if (assignments.stream().anyMatch(a -> a.role() == UserRole.ADMIN)) {
+            return UserRole.ADMIN;
+        }
         return assignments.stream()
                 .anyMatch(assignment -> assignment.role() == UserRole.PROPERTY_MANAGER)
                 ? UserRole.PROPERTY_MANAGER
@@ -363,14 +379,23 @@ public class UserManagementService {
                 .forEach(this::assertCanAssignRole);
     }
 
-    /** A caller may never create/assign the SUPER_ADMIN role; ADMINs may manage
-     *  every role except another admin. */
+    /** A caller may never create/assign the SUPER_ADMIN role; a scoped ADMIN may
+     *  assign only property-scoped staff roles, never another admin or an
+     *  account-wide role (e.g. ACCOUNTANT) that would exceed their own scope. */
     private void assertCanAssignRole(UserRole targetRole) {
         if (targetRole == UserRole.SUPER_ADMIN) {
             throw new AccessDeniedException("The owner role cannot be assigned");
         }
-        if (JwtUtils.getCurrentRole() == UserRole.ADMIN && targetRole.isAdmin()) {
-            throw new AccessDeniedException("Admins cannot manage other admins");
+        if (JwtUtils.getCurrentRole() == UserRole.ADMIN) {
+            if (targetRole.isAdmin()) {
+                throw new AccessDeniedException("Admins cannot manage other admins");
+            }
+            // A scoped admin may only hand out property-scoped staff roles, never
+            // an account-wide role (e.g. ACCOUNTANT) that would exceed their scope.
+            if (!targetRole.isPropertyScoped()) {
+                throw new AccessDeniedException(
+                        "Admins can only assign property-scoped roles");
+            }
         }
     }
 
@@ -378,8 +403,18 @@ public class UserManagementService {
     private User loadManageableUser(UUID id, UUID account) {
         User user = userRepository.findByIdAndAccountOwnerId(id, account)
                 .orElseThrow(() -> new NotFoundException("User not found"));
-        if (JwtUtils.getCurrentRole() == UserRole.ADMIN && user.getRole().isAdmin()) {
-            throw new AccessDeniedException("Admins can only manage property managers");
+        if (JwtUtils.getCurrentRole() == UserRole.ADMIN) {
+            if (user.getRole().isAdmin()) {
+                throw new AccessDeniedException("Admins cannot manage other admins");
+            }
+            // A scoped admin may only manage staff who share one of their properties.
+            Set<UUID> mine = Set.copyOf(
+                    assignmentRepository.findPropertyIdsByUserId(JwtUtils.getCurrentUserId()));
+            boolean shares = assignmentRepository.findPropertyIdsByUserId(id)
+                    .stream().anyMatch(mine::contains);
+            if (!shares) {
+                throw new AccessDeniedException("You can only manage staff on your properties");
+            }
         }
         return user;
     }
@@ -449,6 +484,11 @@ public class UserManagementService {
         // property the user already had collides with the (user, property)
         // unique constraint.
         assignmentRepository.flush();
+        // A scoped admin may only place staff on properties they themselves hold;
+        // the owner (SUPER_ADMIN) may assign any property in the account.
+        Set<UUID> callerProperties = JwtUtils.getCurrentRole() == UserRole.ADMIN
+                ? Set.copyOf(assignmentRepository.findPropertyIdsByUserId(JwtUtils.getCurrentUserId()))
+                : null;
         Set<UUID> assigned = new HashSet<>();
         for (PropertyAssignmentRequest assignment : assignments) {
             if (!assignment.role().isPropertyScoped()) {
@@ -463,6 +503,10 @@ public class UserManagementService {
             }
             if (!propertyRepository.existsByIdAndLandlordId(assignment.propertyId(), account)) {
                 throw new NotFoundException("Property not found: " + assignment.propertyId());
+            }
+            if (callerProperties != null && !callerProperties.contains(assignment.propertyId())) {
+                throw new AccessDeniedException(
+                        "You can only assign staff to properties you manage");
             }
             assignmentRepository.save(UserPropertyAssignment.builder()
                     .userId(user.getId())

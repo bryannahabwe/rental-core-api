@@ -66,6 +66,22 @@ public class BillingCycleUtils {
     }
 
     /**
+     * Whether rent for a cycle is actually owed as of {@code today}. Used
+     * everywhere "is this rent due yet?" is asked — the balance calculation and
+     * the cycle list shown when recording a payment — so a future cycle offered
+     * only for paying ahead is never counted as arrears.
+     * <p>
+     * ADVANCE: due once the period has started (rent paid at the start).
+     * ARREARS: due only once the period has ended (rent paid at the end).
+     */
+    public static boolean isDue(BillingModel model, LocalDate periodStart,
+                                LocalDate periodEnd, LocalDate today) {
+        return model == BillingModel.ARREARS
+                ? periodEnd.isBefore(today)
+                : !periodStart.isAfter(today);
+    }
+
+    /**
      * Count how many billing cycles have elapsed and are DUE.
      * <p>
      * ADVANCE: current in-progress cycle counts immediately (paid at start)

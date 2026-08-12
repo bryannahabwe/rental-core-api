@@ -33,6 +33,7 @@ app:
     expiry-ms: ${JWT_EXPIRY_MS:86400000}
     refresh-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}
     invite-expiry-ms: ${JWT_INVITE_EXPIRY_MS:259200000}
+    reset-expiry-ms: ${JWT_RESET_EXPIRY_MS:3600000}
   frontend:
     url: ${FRONTEND_URL:http://localhost:5175}
   cloudinary:

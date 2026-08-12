@@ -50,12 +50,13 @@ public class ReportService {
         long terminatedAgreements = agreementRepository.countByLandlordIdAndStatus(
                 landlordId, AgreementStatus.TERMINATED, propertyId);
 
-        BigDecimal totalRevenue = paymentRepository.sumAmountByLandlordIdAndDateRange(
-                landlordId,
-                propertyId,
-                LocalDate.of(2000, 1, 1),
-                LocalDate.now()
-        );
+        LocalDate epoch = LocalDate.of(2000, 1, 1);
+        LocalDate today = LocalDate.now();
+        BigDecimal totalRevenue = paymentRepository
+                .sumAmountByLandlordIdAndDateRange(landlordId, propertyId, epoch, today)
+                // Forfeited security deposits are landlord income too.
+                .add(agreementRepository.sumForfeitedDepositByLandlordIdAndDateRange(
+                        landlordId, propertyId, epoch, today));
 
         return new SummaryResponse(
                 totalUnits,
