@@ -3,6 +3,7 @@ package com.cognix.rentalcoreapi.config;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.shared.security.JwtAuthFilter;
 import com.cognix.rentalcoreapi.shared.security.SupportReadOnlyFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -70,6 +71,17 @@ public class SecurityConfig {
                         .requestMatchers("/platform/**").hasRole("PLATFORM")
                         .anyRequest().authenticated()
                 )
+                // Distinguish "not authenticated" from "authenticated but not
+                // allowed". Without this, an unauthenticated request (missing or
+                // expired token) falls through to the default 403 entry point —
+                // indistinguishable from a genuine permission denial, so the web
+                // client can't tell a dead session (refresh/redirect to login)
+                // from a capability-gated 403 (stay put, show "not allowed").
+                // Unauthenticated → 401; the default access-denied handler still
+                // returns 403 for an authenticated user lacking permission.
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) ->
+                                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
