@@ -14,6 +14,7 @@ import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
+import com.cognix.rentalcoreapi.modules.income.service.OtherIncomeService;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
@@ -47,6 +48,7 @@ public class RentalAgreementService {
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
     private final AgreementBalanceCalculator balanceCalculator;
+    private final OtherIncomeService otherIncomeService;
 
     public PagedResponse<RentalAgreementResponse> getAllAgreements(
             Pageable pageable, String search, AgreementStatus status) {
@@ -234,6 +236,15 @@ public class RentalAgreementService {
                             JwtUtils.getCurrentUserName(), agreement.getTenant().getName(),
                             applied.toPlainString(), refunded.toPlainString(),
                             forfeited.toPlainString()));
+
+            // A forfeited deposit is landlord income. Record it as a first-class
+            // income row so it shows in the income ledger and is counted once by
+            // the reports (which now sum other_income rather than deriving the
+            // forfeited amount from the agreement columns).
+            if (forfeited.signum() > 0) {
+                otherIncomeService.recordForfeitedDeposit(
+                        landlordId, saved, forfeited, request.moveOutDate());
+            }
         }
 
         return RentalAgreementResponse.from(saved);

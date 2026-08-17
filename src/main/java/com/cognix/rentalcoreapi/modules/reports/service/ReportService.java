@@ -5,8 +5,12 @@ import com.cognix.rentalcoreapi.modules.agreements.repository.RentalAgreementRep
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
+import com.cognix.rentalcoreapi.modules.expenses.repository.ExpenseRepository;
+import com.cognix.rentalcoreapi.modules.income.repository.OtherIncomeRepository;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.reports.dto.FinancesResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.MonthlyCollectionResponse;
+import com.cognix.rentalcoreapi.modules.reports.dto.MonthlyFinanceResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.OccupancyReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.PaymentReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.SummaryResponse;
@@ -34,6 +38,8 @@ public class ReportService {
     private final TenantRepository tenantRepository;
     private final RentalAgreementRepository agreementRepository;
     private final PaymentRepository paymentRepository;
+    private final OtherIncomeRepository otherIncomeRepository;
+    private final ExpenseRepository expenseRepository;
     private final AuditWriter auditWriter;
     private final PropertyAccessGuard propertyAccessGuard;
 
@@ -54,8 +60,10 @@ public class ReportService {
         LocalDate today = LocalDate.now();
         BigDecimal totalRevenue = paymentRepository
                 .sumAmountByLandlordIdAndDateRange(landlordId, propertyId, epoch, today)
-                // Forfeited security deposits are landlord income too.
-                .add(agreementRepository.sumForfeitedDepositByLandlordIdAndDateRange(
+                // All non-rent income, including forfeited deposits — which are
+                // now recorded as other_income rows at move-out (and historical
+                // ones backfilled), so they're counted here exactly once.
+                .add(otherIncomeRepository.sumAmountByLandlordIdAndDateRange(
                         landlordId, propertyId, epoch, today));
 
         return new SummaryResponse(
@@ -67,6 +75,60 @@ public class ReportService {
                 terminatedAgreements,
                 totalRevenue
         );
+    }
+
+    /**
+     * Net finances for [from, to]: income (rent + other income) minus expenses,
+     * with a month-by-month series for charting. Defaults to the trailing six
+     * months, like {@link #getMonthlyCollection}.
+     */
+    public FinancesResponse getFinances(LocalDate from, LocalDate to) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
+        UUID propertyId = propertyAccessGuard.requireAccessibleProperty();
+
+        if (from == null) {
+            from = LocalDate.now().minusMonths(5).withDayOfMonth(1);
+        }
+        if (to == null) {
+            to = LocalDate.now();
+        }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("From date cannot be after to date");
+        }
+
+        BigDecimal totalRent = paymentRepository.sumAmountByLandlordIdAndDateRange(
+                landlordId, propertyId, from, to);
+        BigDecimal totalOtherIncome = otherIncomeRepository.sumAmountByLandlordIdAndDateRange(
+                landlordId, propertyId, from, to);
+        BigDecimal totalIncome = totalRent.add(totalOtherIncome);
+        BigDecimal totalExpenses = expenseRepository.sumAmountByLandlordIdAndDateRange(
+                landlordId, propertyId, from, to);
+        BigDecimal net = totalIncome.subtract(totalExpenses);
+
+        List<MonthlyFinanceResponse> monthly = new ArrayList<>();
+        LocalDate cursor = from.withDayOfMonth(1);
+        while (!cursor.isAfter(to)) {
+            LocalDate bucketStart = cursor.isBefore(from) ? from : cursor;
+            LocalDate monthEnd = cursor.withDayOfMonth(cursor.lengthOfMonth());
+            LocalDate bucketEnd = monthEnd.isAfter(to) ? to : monthEnd;
+
+            BigDecimal income = paymentRepository
+                    .sumAmountByLandlordIdAndDateRange(landlordId, propertyId, bucketStart, bucketEnd)
+                    .add(otherIncomeRepository.sumAmountByLandlordIdAndDateRange(
+                            landlordId, propertyId, bucketStart, bucketEnd));
+            BigDecimal expenses = expenseRepository.sumAmountByLandlordIdAndDateRange(
+                    landlordId, propertyId, bucketStart, bucketEnd);
+
+            String label = cursor.getMonth().getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+                    + " " + cursor.getYear();
+            monthly.add(new MonthlyFinanceResponse(
+                    label, cursor, income, expenses, income.subtract(expenses)));
+
+            cursor = cursor.plusMonths(1);
+        }
+
+        return new FinancesResponse(from, to, totalRent, totalOtherIncome,
+                totalIncome, totalExpenses, net, monthly);
     }
 
     public PaymentReportResponse getPaymentReport(LocalDate from, LocalDate to) {
@@ -87,6 +149,8 @@ public class ReportService {
         long totalPayments = paymentRepository.countByLandlordIdAndPaymentDateBetween(
                 landlordId, propertyId, from, to);
 
+        // Payments report is pure rent collection — forfeited deposits are NOT
+        // included here (they surface only in /summary's total revenue).
         BigDecimal totalAmount = paymentRepository.sumAmountByLandlordIdAndDateRange(
                 landlordId, propertyId, from, to);
 
@@ -134,6 +198,7 @@ public class ReportService {
 
             long totalPayments = paymentRepository.countByLandlordIdAndPaymentDateBetween(
                     landlordId, propertyId, bucketStart, bucketEnd);
+            // Rent collection only — forfeited deposits excluded (see getSummary).
             BigDecimal totalAmount = paymentRepository.sumAmountByLandlordIdAndDateRange(
                     landlordId, propertyId, bucketStart, bucketEnd);
 

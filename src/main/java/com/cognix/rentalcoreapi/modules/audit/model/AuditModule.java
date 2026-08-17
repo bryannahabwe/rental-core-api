@@ -10,5 +10,8 @@ public enum AuditModule {
     USER,
     SETTINGS,
     REPORT,
-    AUTHENTICATION
+    AUTHENTICATION,
+    EXPENSE,
+    INCOME,
+    CATEGORY
 }

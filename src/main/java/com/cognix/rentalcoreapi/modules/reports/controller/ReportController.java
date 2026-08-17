@@ -1,5 +1,6 @@
 package com.cognix.rentalcoreapi.modules.reports.controller;
 
+import com.cognix.rentalcoreapi.modules.reports.dto.FinancesResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.MonthlyCollectionResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.OccupancyReportResponse;
 import com.cognix.rentalcoreapi.modules.reports.dto.PaymentReportResponse;
@@ -51,5 +52,14 @@ public class ReportController {
     @GetMapping("/occupancy")
     public ResponseEntity<OccupancyReportResponse> getOccupancyReport() {
         return ResponseEntity.ok(reportService.getOccupancyReport());
+    }
+
+    @GetMapping("/finances")
+    public ResponseEntity<FinancesResponse> getFinances(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(reportService.getFinances(from, to));
     }
 }

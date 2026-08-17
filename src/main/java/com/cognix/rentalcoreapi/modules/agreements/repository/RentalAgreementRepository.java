@@ -8,8 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,20 +29,6 @@ public interface RentalAgreementRepository extends JpaRepository<RentalAgreement
 
     Optional<RentalAgreement> findFirstByTenantIdAndLandlordIdAndStatus(
             UUID tenantId, UUID landlordId, AgreementStatus status);
-
-    // Forfeited security deposits are landlord income (kept for damages/penalties),
-    // bucketed by move-out date like payments are by payment date. Read-only sum
-    // used by reports; the balance calculator never reads depositForfeited, so this
-    // cannot affect any tenant's outstanding balance.
-    @Query("SELECT COALESCE(SUM(a.depositForfeited), 0) FROM RentalAgreement a " +
-            "WHERE a.landlord.id = :landlordId " +
-            "AND (:propertyId IS NULL OR a.property.id = :propertyId) " +
-            "AND a.moveOutDate BETWEEN :from AND :to")
-    BigDecimal sumForfeitedDepositByLandlordIdAndDateRange(
-            @Param("landlordId") UUID landlordId,
-            @Param("propertyId") UUID propertyId,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to);
 
     @Query("SELECT a FROM RentalAgreement a WHERE a.landlord.id = :landlordId AND " +
             "(:propertyId IS NULL OR a.property.id = :propertyId) AND " +

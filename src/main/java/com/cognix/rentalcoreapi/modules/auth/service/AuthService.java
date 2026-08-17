@@ -15,7 +15,9 @@ import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
+import com.cognix.rentalcoreapi.modules.categories.service.ExpenseCategoryService;
 import com.cognix.rentalcoreapi.modules.notification.EmailService;
+import com.cognix.rentalcoreapi.modules.paymentmethods.service.PaymentMethodService;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.settings.service.LandlordSettingsService;
@@ -52,6 +54,8 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final AuditWriter auditWriter;
     private final LandlordSettingsService landlordSettingsService;
+    private final ExpenseCategoryService expenseCategoryService;
+    private final PaymentMethodService paymentMethodService;
     private final EmailService emailService;
 
     @Value("${app.frontend.url}")
@@ -101,6 +105,11 @@ public class AuthService {
         // Business Profile isn't blank and receipts/sidebar show their name
         // rather than the platform fallback. They can rename it later.
         landlordSettingsService.provisionFor(user, propertyName);
+
+        // Seed the account's managed expense categories and payment methods so
+        // the Expenses feature has sensible defaults from day one.
+        expenseCategoryService.seedDefaults(user);
+        paymentMethodService.seedDefaults(user);
 
         // Explicit actor: there is no security context during registration.
         auditWriter.record(AuditModule.AUTHENTICATION, AuditAction.REGISTER,
