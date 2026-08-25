@@ -26,12 +26,22 @@ public record PaymentResponse(
         BigDecimal expectedAmount,
         BigDecimal overpayment,
         PaymentSource source,
+        BigDecimal periodPaidAmount,
         String periodStatus,
         String reference,
         String notes,
         LocalDateTime createdAt
 ) {
-    public static PaymentResponse from(Payment p) {
+    /**
+     * @param periodPaidAmount total retained by this row's billing cycle across
+     *                         every payment filed against it — not just this
+     *                         row's own contribution. A cycle is routinely
+     *                         covered by several rows (a rollover tail plus a
+     *                         cash top-up, say); judged row by row against the
+     *                         full rent, each of them reads PARTIAL however
+     *                         much the period actually holds.
+     */
+    public static PaymentResponse from(Payment p, BigDecimal periodPaidAmount) {
         return new PaymentResponse(
                 p.getId(),
                 p.getProperty() != null ? p.getProperty().getId() : null,
@@ -49,18 +59,23 @@ public record PaymentResponse(
                 p.getExpectedAmount(),
                 p.getOverpayment(),
                 p.getSource(),
-                computePeriodStatus(p),
+                periodPaidAmount,
+                computePeriodStatus(p, periodPaidAmount),
                 p.getReference(),
                 p.getNotes(),
                 p.getCreatedAt()
         );
     }
 
-    private static String computePeriodStatus(Payment p) {
+    /**
+     * The state of the PERIOD this payment belongs to, not of the payment. A
+     * rollover row keeps its own label — on a payments table that is the only
+     * marker distinguishing carried-forward credit from cash received.
+     */
+    private static String computePeriodStatus(Payment p, BigDecimal periodPaidAmount) {
         if (p.getSource() == PaymentSource.ROLLOVER) return "ROLLOVER";
-        int cmp = p.getAmount().compareTo(p.getExpectedAmount());
-        if (cmp >= 0) return "PAID";
-        if (p.getAmount().compareTo(BigDecimal.ZERO) == 0) return "UNPAID";
+        if (periodPaidAmount.compareTo(p.getExpectedAmount()) >= 0) return "PAID";
+        if (periodPaidAmount.compareTo(BigDecimal.ZERO) <= 0) return "UNPAID";
         return "PARTIAL";
     }
 }

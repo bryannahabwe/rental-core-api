@@ -38,6 +38,7 @@ public class PaymentService {
     private final UserRepository userRepository;
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
+    private final PeriodPaidLookup periodPaidLookup;
 
     public PagedResponse<PaymentResponse> getAllPayments(
             Pageable pageable, UUID tenantId, UUID agreementId,
@@ -52,7 +53,12 @@ public class PaymentService {
         Page<Payment> page = paymentRepository.findAllWithFilters(
                 landlordId, propertyId, tenantId, agreementId, search, from, to, pageable);
 
-        return PagedResponse.from(page.map(PaymentResponse::from));
+        // One grouped query for every cycle this page touches, so each row's
+        // status reflects its whole period rather than its own amount — a
+        // top-up on a part-paid cycle must not read PARTIAL forever.
+        PeriodPaidLookup.Index periodPaid = periodPaidLookup.forPayments(page.getContent());
+
+        return PagedResponse.from(page.map(p -> PaymentResponse.from(p, periodPaid.paidFor(p))));
     }
 
     public PaymentResponse getPayment(UUID id) {
@@ -60,12 +66,12 @@ public class PaymentService {
         Payment payment = paymentRepository.findByIdAndLandlordId(id, landlordId)
                 .orElseThrow(() -> new NotFoundException("Payment not found"));
         propertyAccessGuard.assertCanAccess(payment.getProperty().getId());
-        return PaymentResponse.from(payment);
+        return PaymentResponse.from(payment, retainedByCycle(payment));
     }
 
     // Beyond this many cycles ahead, stop hunting for an open slot for
     // leftover rollover credit — guards against runaway recursion if a
-    // tenant has an implausibly long run of pre-existing rollover rows.
+    // tenant has an implausibly long run of already-covered cycles.
     private static final int MAX_ROLLOVER_LOOKAHEAD_CYCLES = 120;
 
     @Transactional
@@ -95,9 +101,16 @@ public class PaymentService {
         boolean appliesToOpeningArrears = request.periodStartDate()
                 .isBefore(BillingCycleUtils.effectiveStartDate(agreement));
 
+        // Sized off what the cycle STILL needs, not off the bare rent. A cycle
+        // that already holds part of its rent must not be charged for it twice
+        // — and it silently was: the difference simply never entered the
+        // rollover chain, so a later cycle came up short by exactly the amount
+        // already paid here.
         BigDecimal overpayment = appliesToOpeningArrears
                 ? BigDecimal.ZERO
-                : paidAmount.subtract(expectedAmount).max(BigDecimal.ZERO);
+                : paidAmount.subtract(remainingNeed(
+                                agreement, request.periodStartDate(), request.periodEndDate()))
+                        .max(BigDecimal.ZERO);
 
         Payment payment = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
@@ -137,7 +150,36 @@ public class PaymentService {
                     landlordId, request.paymentDate(), 0);
         }
 
-        return PaymentResponse.from(saved);
+        return PaymentResponse.from(saved, retainedByCycle(saved));
+    }
+
+    /**
+     * What a billing cycle still needs: its rent less what it already retains.
+     *
+     * <p>Every credit decision is sized off this rather than off the bare rent
+     * — how much of a payment spills forward, and how much of that spill each
+     * downstream cycle absorbs. Sizing off rent alone charges a cycle again for
+     * money it already holds, and the difference does not resurface anywhere:
+     * a 610k lump sum against an April already holding 110k rolled 430k instead
+     * of 540k, leaving July 110k short of a month it had in fact been paid.
+     */
+    private BigDecimal remainingNeed(
+            RentalAgreement agreement, LocalDate cycleStart, LocalDate cycleEnd) {
+
+        return agreement.getRentAmount()
+                .subtract(retained(agreement.getId(), cycleStart, cycleEnd))
+                .max(BigDecimal.ZERO);
+    }
+
+    private BigDecimal retained(UUID agreementId, LocalDate cycleStart, LocalDate cycleEnd) {
+        BigDecimal sum = paymentRepository.sumRetainedByAgreementAndCycle(
+                agreementId, cycleStart, cycleEnd);
+        return sum != null ? sum : BigDecimal.ZERO;
+    }
+
+    private BigDecimal retainedByCycle(Payment payment) {
+        return retained(payment.getAgreement().getId(),
+                payment.getPeriodStartDate(), payment.getPeriodEndDate());
     }
 
     private void createRolloverPayment(
@@ -153,23 +195,25 @@ public class PaymentService {
         int billingDay = agreement.getBillingDay();
         LocalDate nextCycleEnd = BillingCycleUtils.cycleEnd(nextCycleStart, billingDay);
 
-        // If a rollover already exists for this cycle, it's already fully
-        // credited (rollovers are always created for the full rent amount
-        // unless they're the last one in a chain) — move on to the next
-        // cycle instead of silently dropping this amount.
-        boolean exists = paymentRepository
-                .existsByAgreementIdAndPeriodStartDateAndSource(
-                        agreement.getId(), nextCycleStart, PaymentSource.ROLLOVER);
-        if (exists) {
+        // How much this cycle can still absorb. A cycle already holding part of
+        // its rent — from cash, or from the tail of an earlier rollover chain —
+        // takes only the shortfall and the rest travels on.
+        //
+        // This replaces a check that skipped any cycle already carrying a
+        // ROLLOVER row, on the assumption that rollover rows are always written
+        // for a full month. The last row in a chain is partial by construction,
+        // so a part-covered cycle was jumped over entirely and left underfunded
+        // while the credit landed a month too late.
+        BigDecimal need = remainingNeed(agreement, nextCycleStart, nextCycleEnd);
+
+        if (need.compareTo(BigDecimal.ZERO) <= 0) {
             createRolloverPayment(agreement, rolloverAmount,
                     nextCycleEnd.plusDays(1), landlordId, originalPaymentDate, depth + 1);
             return;
         }
 
-        BigDecimal expectedAmount = agreement.getRentAmount();
-        BigDecimal actualRollover = rolloverAmount.min(expectedAmount);
-        BigDecimal remainingOverpayment = rolloverAmount
-                .subtract(expectedAmount).max(BigDecimal.ZERO);
+        BigDecimal actualRollover = rolloverAmount.min(need);
+        BigDecimal remainingOverpayment = rolloverAmount.subtract(actualRollover);
 
         Payment rollover = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
@@ -182,12 +226,13 @@ public class PaymentService {
                 .method(PaymentMethod.CASH)
                 .periodStartDate(nextCycleStart)
                 .periodEndDate(nextCycleEnd)
-                .expectedAmount(expectedAmount)
+                .expectedAmount(agreement.getRentAmount())
                 // This row's `amount` is already the credit for THIS cycle
-                // (capped at one month's rent). Any leftover is carried by the
-                // NEXT rollover row below — NOT by this row's overpayment. Storing
-                // it here would make `amount - overpayment` (the per-cycle
-                // retained figure) net to zero for every middle cycle.
+                // (capped at what the cycle still needed). Any leftover is
+                // carried by the NEXT rollover row below — NOT by this row's
+                // overpayment. Storing it here would make `amount - overpayment`
+                // (the per-cycle retained figure) net to zero for every middle
+                // cycle.
                 .overpayment(BigDecimal.ZERO)
                 .source(PaymentSource.ROLLOVER)
                 .reference("Rollover from " + nextCycleStart.minusDays(1))

@@ -1,5 +1,6 @@
 package com.cognix.rentalcoreapi.modules.payments.repository;
 
+import com.cognix.rentalcoreapi.modules.payments.dto.CycleRetained;
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import org.springframework.data.domain.Page;
@@ -10,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,13 +32,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     List<Payment> findAllByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
-
-    // ── Rollover deduplication — now uses periodStartDate ──
-    boolean existsByAgreementIdAndPeriodStartDateAndSource(
-            UUID agreementId,
-            LocalDate periodStartDate,
-            PaymentSource source
-    );
 
     // ── Cumulative balance — sum ALL payments for an agreement ──
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
@@ -151,4 +146,16 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             @Param("periodStartDate") LocalDate periodStartDate,
             @Param("periodEndDate") LocalDate periodEndDate
     );
+
+    // ── Same figure, but for every cycle of the given agreements at once.
+    // Backs the per-period status on a page of payments: a row cannot say
+    // whether its period is settled without the period's total, and one
+    // query per row would be a round trip per line of the table. ──
+    @Query("SELECT new com.cognix.rentalcoreapi.modules.payments.dto.CycleRetained(" +
+            "p.agreement.id, p.periodStartDate, p.periodEndDate, " +
+            "SUM(p.amount - p.overpayment)) " +
+            "FROM Payment p WHERE p.agreement.id IN :agreementIds " +
+            "GROUP BY p.agreement.id, p.periodStartDate, p.periodEndDate")
+    List<CycleRetained> findRetainedByCycle(
+            @Param("agreementIds") Collection<UUID> agreementIds);
 }

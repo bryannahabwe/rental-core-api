@@ -15,6 +15,7 @@ import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.payments.service.PeriodPaidLookup;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.tenants.dto.TenantLedgerResponse;
@@ -54,6 +55,7 @@ public class TenantService {
     private final PropertyRepository propertyRepository;
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
+    private final PeriodPaidLookup periodPaidLookup;
 
     public PagedResponse<TenantResponse> getAllTenants(Pageable pageable, String search) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
@@ -251,12 +253,13 @@ public class TenantService {
         // getTenantTransactions() ("load more") so a long tenancy doesn't inflate
         // this payload over time. ROLLOVER rows are kept — they're real payment
         // records and appear on the Payments table too.
+        PeriodPaidLookup.Index periodPaid = PeriodPaidLookup.fromCompleteHistory(allPayments);
         List<PaymentResponse> transactions = allPayments.stream()
                 .sorted(java.util.Comparator.comparing(Payment::getPaymentDate)
                         .thenComparing(Payment::getCreatedAt)
                         .reversed())
                 .limit(TRANSACTIONS_PREVIEW_SIZE)
-                .map(PaymentResponse::from).toList();
+                .map(p -> PaymentResponse.from(p, periodPaid.paidFor(p))).toList();
 
         return new TenantLedgerResponse(
                 tenant.getId(), tenant.getName(), agreement.getId(),
@@ -290,7 +293,9 @@ public class TenantService {
         Page<Payment> page = paymentRepository.findAllByLandlordIdAndAgreementId(
                 landlordId, agreement.getId(), pageable);
 
-        return PagedResponse.from(page.map(PaymentResponse::from));
+        PeriodPaidLookup.Index periodPaid = periodPaidLookup.forPayments(page.getContent());
+
+        return PagedResponse.from(page.map(p -> PaymentResponse.from(p, periodPaid.paidFor(p))));
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
