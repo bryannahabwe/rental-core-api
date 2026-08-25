@@ -1,0 +1,15 @@
+-- Drop uq_payment_rollover.
+--
+-- It was a partial unique index over (agreement_id, period_month, period_year)
+-- WHERE source = 'ROLLOVER', enforcing "one rollover row per cycle" back when a
+-- cycle was identified by month+year. V11 replaced those columns with real
+-- period dates and V12 made the old pair nullable; the entity stopped mapping
+-- them, so every row written since carries NULL for both. NULLs never collide
+-- in a unique index, which has left this index enforcing nothing at all.
+--
+-- It is dropped rather than reinstated over the period dates because the rule
+-- it encoded is no longer true. Rollover credit is now sized by what a cycle
+-- still needs, so two lump sums paid months apart can each legitimately leave a
+-- rollover row on the same cycle — the first filling part of it, the second
+-- topping it up. Each row traces to the payment that funded it.
+DROP INDEX IF EXISTS uq_payment_rollover;
