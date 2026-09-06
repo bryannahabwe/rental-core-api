@@ -28,6 +28,7 @@ public record PaymentResponse(
         PaymentSource source,
         BigDecimal periodPaidAmount,
         String periodStatus,
+        String receiptNo,
         String reference,
         String notes,
         LocalDateTime createdAt
@@ -61,6 +62,7 @@ public record PaymentResponse(
                 p.getSource(),
                 periodPaidAmount,
                 computePeriodStatus(p, periodPaidAmount),
+                p.getReceiptNo(),
                 p.getReference(),
                 p.getNotes(),
                 p.getCreatedAt()

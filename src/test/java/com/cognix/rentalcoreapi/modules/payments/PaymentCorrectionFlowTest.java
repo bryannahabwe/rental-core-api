@@ -202,6 +202,52 @@ class PaymentCorrectionFlowTest {
         assertThat(entry.get("receivedBy").isNull()).isTrue();
     }
 
+    @Test
+    void aReceiptNumberIsDrawnOnceAndStaysWithThePayment() throws Exception {
+        String created = mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentBody("100000")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID paymentId = UUID.fromString(objectMapper.readTree(created).get("id").asText());
+
+        // A freshly recorded payment carries no receipt until one is issued.
+        assertThat(objectMapper.readTree(created).get("receiptNo").isNull()).isTrue();
+
+        String first = mockMvc.perform(post("/payments/" + paymentId + "/receipt"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String second = mockMvc.perform(post("/payments/" + paymentId + "/receipt"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(first).isNotBlank();
+        // Downloading the receipt again reproduces the tenant's copy instead of
+        // drawing a new number out of the sequence.
+        assertThat(second).isEqualTo(first);
+
+        String fetched = mockMvc.perform(get("/payments/" + paymentId))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(fetched).get("receiptNo").asText()).isEqualTo(first);
+    }
+
+    @Test
+    void carriedForwardCreditCannotBeReceipted() throws Exception {
+        mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentBody("300000")))
+                .andExpect(status().isCreated());
+
+        UUID rolloverId = rows().stream()
+                .filter(r -> "ROLLOVER".equals(r.get("source").asText()))
+                .map(r -> UUID.fromString(r.get("id").asText()))
+                .findFirst().orElseThrow();
+
+        mockMvc.perform(post("/payments/" + rolloverId + "/receipt"))
+                .andExpect(status().isConflict());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private String paymentBody(String amount) {

@@ -69,6 +69,14 @@ public class PaymentController {
                 .body(paymentService.recordPayment(request));
     }
 
+    // Mirrors who may record a payment — a receipt number is only ever drawn as
+    // part of issuing a receipt for one.
+    @PostMapping("/{id}/receipt")
+    @PreAuthorize(RECORD_ROLES)
+    public ResponseEntity<String> issueReceipt(@PathVariable UUID id) {
+        return ResponseEntity.ok(paymentService.issueReceipt(id));
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize(AMEND_ROLES)
     public ResponseEntity<PaymentResponse> updatePayment(

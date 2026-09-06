@@ -122,11 +122,24 @@ public class LandlordSettingsService {
     }
 
     /**
-     * Increment and return the next receipt number.
-     * Called when a receipt is generated.
+     * Increment and return the next receipt number, for a receipt that belongs
+     * to no payment row — the Manual Receipt tab, where nothing was recorded.
+     * A receipt for a recorded payment goes through
+     * {@code PaymentService.issueReceipt}, which keeps the number on the row.
      */
     @Transactional
     public String getNextReceiptNumber() {
+        return drawReceiptNumber(null);
+    }
+
+    /**
+     * Draws the next number in the account's receipt sequence.
+     *
+     * @param issuedFor what the receipt is for, named in the audit sentence, or
+     *                  null for a manual receipt with no payment behind it
+     */
+    @Transactional
+    public String drawReceiptNumber(String issuedFor) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
         // Row-locked: the read-modify-write below must be serialised so two
         // concurrent receipts cannot draw the same number.
@@ -145,7 +158,11 @@ public class LandlordSettingsService {
         // Every issued number is recorded so the receipt sequence can be
         // reconciled — a gap or a re-issue has someone's name against it.
         auditWriter.record(AuditModule.SETTINGS, AuditAction.ISSUE_RECEIPT, null, formatted,
-                "%s issued receipt number %s.".formatted(JwtUtils.getCurrentUserName(), formatted));
+                issuedFor == null
+                        ? "%s issued receipt number %s.".formatted(
+                                JwtUtils.getCurrentUserName(), formatted)
+                        : "%s issued receipt number %s for %s.".formatted(
+                                JwtUtils.getCurrentUserName(), formatted, issuedFor));
 
         return formatted;
     }

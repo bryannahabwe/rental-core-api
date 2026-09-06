@@ -13,6 +13,7 @@ import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.settings.service.LandlordSettingsService;
 import com.cognix.rentalcoreapi.shared.exception.ConflictException;
 import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
@@ -41,6 +42,7 @@ public class PaymentService {
     private final AuditWriter auditWriter;
     private final PeriodPaidLookup periodPaidLookup;
     private final PaymentAllocationService allocationService;
+    private final LandlordSettingsService settingsService;
 
     public PagedResponse<PaymentResponse> getAllPayments(
             Pageable pageable, UUID tenantId, UUID agreementId,
@@ -119,6 +121,47 @@ public class PaymentService {
     }
 
     /**
+     * The receipt number for a payment, drawing one from the account's sequence
+     * the first time and returning that same number ever after.
+     *
+     * <p>Idempotent on purpose. The number used to be drawn afresh on every
+     * download, so re-printing a receipt handed the tenant a different number
+     * than the copy they were already holding and burned one out of the
+     * sequence each time. Keeping it on the row also means a payment removed in
+     * error can still say which receipt is out there.
+     */
+    @Transactional
+    public String issueReceipt(UUID id) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
+        Payment payment = paymentRepository.findByIdAndLandlordId(id, landlordId)
+                .orElseThrow(() -> new NotFoundException("Payment not found"));
+        propertyAccessGuard.assertCanAccess(payment.getProperty().getId());
+
+        // A receipt says money was received. A ROLLOVER row is credit carried
+        // forward from cash already receipted on the row that funded it —
+        // receipting it again would be a second receipt for the same money, and
+        // the number would be discarded by the next replay anyway.
+        if (payment.getSource() == PaymentSource.ROLLOVER) {
+            throw new ConflictException(
+                    "This is carried-forward credit, not a payment received. "
+                            + describeFunder(payment));
+        }
+
+        if (payment.getReceiptNo() != null) {
+            return payment.getReceiptNo();
+        }
+
+        String receiptNo = settingsService.drawReceiptNumber(
+                "%s (%s), payment of %s".formatted(
+                        payment.getTenant().getName(), payment.getUnit().getRoomNumber(),
+                        payment.getPaymentDate()));
+
+        payment.setReceiptNo(receiptNo);
+        paymentRepository.saveAndFlush(payment);
+        return receiptNo;
+    }
+
+    /**
      * Corrects a payment already recorded — a mis-typed amount, the wrong date,
      * the wrong billing period.
      *
@@ -170,6 +213,12 @@ public class PaymentService {
             changes.add("carried-forward credit rebuilt (%d rows → %d)"
                     .formatted(result.rolloversBefore(), result.rolloversAfter()));
         }
+        // The tenant may be holding a receipt that no longer matches the row.
+        // Nothing here can know whether one was printed, so say it plainly and
+        // let whoever reads the feed reconcile it.
+        if (!changes.isEmpty() && saved.getReceiptNo() != null) {
+            changes.add("receipt %s already issued".formatted(saved.getReceiptNo()));
+        }
 
         // An edit that moved nothing is not an event worth a row in the feed.
         if (!changes.isEmpty()) {
@@ -195,12 +244,17 @@ public class PaymentService {
         Payment payment = requireCorrectableCashRow(id, landlordId);
         RentalAgreement agreement = lockAgreement(payment.getAgreement().getId(), landlordId);
 
-        // Captured before the delete — nothing below can read the row.
-        String statement = "%s deleted a UGX %,.0f payment for %s (%s) covering %s – %s, received on %s.".formatted(
+        // Captured before the delete — nothing below can read the row. The
+        // receipt number matters most of all here: it is the one thing that
+        // cannot be recovered once the row is gone, and the tenant may still be
+        // holding the paper.
+        String statement = "%s deleted a UGX %,.0f payment for %s (%s) covering %s – %s, received on %s.%s".formatted(
                 JwtUtils.getCurrentUserName(), payment.getAmount(),
                 payment.getTenant().getName(), payment.getUnit().getRoomNumber(),
                 payment.getPeriodStartDate(), payment.getPeriodEndDate(),
-                payment.getPaymentDate());
+                payment.getPaymentDate(),
+                payment.getReceiptNo() == null ? ""
+                        : " Receipt %s stays issued.".formatted(payment.getReceiptNo()));
         UUID propertyId = payment.getProperty().getId();
 
         paymentRepository.delete(payment);

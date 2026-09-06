@@ -14,6 +14,7 @@ import com.cognix.rentalcoreapi.modules.payments.model.Payment;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentMethod;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.settings.service.LandlordSettingsService;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
 import com.cognix.rentalcoreapi.modules.units.model.RentalUnit;
@@ -73,6 +74,7 @@ class PaymentServiceTest {
     @Mock private AuditWriter auditWriter;
     @Mock private PeriodPaidLookup periodPaidLookup;
     @Mock private PaymentAllocationService allocationService;
+    @Mock private LandlordSettingsService settingsService;
 
     @InjectMocks private PaymentService paymentService;
 
@@ -295,6 +297,81 @@ class PaymentServiceTest {
         paymentService.deletePayment(PAYMENT);
 
         verify(allocationService).reallocate(agreement);
+    }
+
+    // ── Receipt numbers ──────────────────────────────────────────────────
+
+    @Test
+    void issuingAReceiptDrawsANumberOnceAndKeepsIt() {
+        when(settingsService.drawReceiptNumber(any())).thenReturn("RCP-007");
+
+        String first = paymentService.issueReceipt(PAYMENT);
+        String second = paymentService.issueReceipt(PAYMENT);
+
+        assertThat(first).isEqualTo("RCP-007");
+        // Re-printing must reproduce the copy the tenant holds, not hand them a
+        // different number and burn one out of the sequence.
+        assertThat(second).isEqualTo("RCP-007");
+        verify(settingsService, org.mockito.Mockito.times(1)).drawReceiptNumber(any());
+        assertThat(existing.getReceiptNo()).isEqualTo("RCP-007");
+    }
+
+    @Test
+    void issuingAReceiptNamesThePaymentInTheReceiptLog() {
+        when(settingsService.drawReceiptNumber(any())).thenReturn("RCP-007");
+
+        paymentService.issueReceipt(PAYMENT);
+
+        ArgumentCaptor<String> issuedFor = ArgumentCaptor.forClass(String.class);
+        verify(settingsService).drawReceiptNumber(issuedFor.capture());
+        assertThat(issuedFor.getValue()).isEqualTo("Jane (A1), payment of 2026-01-05");
+    }
+
+    @Test
+    void carriedForwardCreditCannotBeReceipted() {
+        existing.setSource(PaymentSource.ROLLOVER);
+
+        assertThatThrownBy(() -> paymentService.issueReceipt(PAYMENT))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("carried-forward credit");
+
+        verify(settingsService, never()).drawReceiptNumber(any());
+    }
+
+    @Test
+    void deletingSaysWhichReceiptIsStillOutThere() {
+        // The one fact that cannot be recovered once the row is gone.
+        existing.setReceiptNo("RCP-007");
+
+        paymentService.deletePayment(PAYMENT);
+
+        ArgumentCaptor<String> statement = ArgumentCaptor.forClass(String.class);
+        verify(auditWriter).record(eq(AuditModule.PAYMENT), eq(AuditAction.DELETE),
+                any(), eq(PAYMENT.toString()), statement.capture());
+        assertThat(statement.getValue()).contains("Receipt RCP-007 stays issued.");
+    }
+
+    @Test
+    void deletingAnUnreceiptedPaymentSaysNothingAboutReceipts() {
+        paymentService.deletePayment(PAYMENT);
+
+        ArgumentCaptor<String> statement = ArgumentCaptor.forClass(String.class);
+        verify(auditWriter).record(eq(AuditModule.PAYMENT), eq(AuditAction.DELETE),
+                any(), eq(PAYMENT.toString()), statement.capture());
+        assertThat(statement.getValue()).doesNotContain("Receipt");
+    }
+
+    @Test
+    void editingFlagsAReceiptAlreadyInTheTenantsHands() {
+        existing.setReceiptNo("RCP-007");
+
+        paymentService.updatePayment(PAYMENT,
+                request(new BigDecimal("300000.00"), CYCLE_START, CYCLE_END));
+
+        ArgumentCaptor<String> statement = ArgumentCaptor.forClass(String.class);
+        verify(auditWriter).record(eq(AuditModule.PAYMENT), eq(AuditAction.UPDATE),
+                any(), eq(PAYMENT.toString()), statement.capture());
+        assertThat(statement.getValue()).contains("receipt RCP-007 already issued");
     }
 
     // ── Guards shared by both ────────────────────────────────────────────

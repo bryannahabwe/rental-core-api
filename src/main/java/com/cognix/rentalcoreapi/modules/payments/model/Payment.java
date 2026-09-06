@@ -79,6 +79,15 @@ public class Payment extends BaseEntity {
     @Column(name = "funded_by_payment_id")
     private UUID fundedByPaymentId;
 
+    /**
+     * The receipt number issued for this payment, or null if none has been.
+     * Drawn once and kept, so re-printing a receipt reproduces the copy the
+     * tenant holds instead of drawing a fresh number, and so a payment removed
+     * in error can still say which receipt is out there.
+     */
+    @Column(name = "receipt_no")
+    private String receiptNo;
+
     @Column
     private String reference;
 
