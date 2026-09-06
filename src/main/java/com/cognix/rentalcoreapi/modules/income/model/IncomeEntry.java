@@ -42,7 +42,11 @@ import java.util.UUID;
                p.amount        AS amount,
                'RENT'          AS source,
                'Rent'          AS category,
-               p.method        AS method,
+               -- Rent is CASH-only (PaymentMethod has one value), so name it the
+               -- way other_income now does: both halves of this union speak
+               -- managed payment-method display names, not enum constants.
+               'Cash'          AS method,
+               NULL::varchar   AS received_by,
                p.reference     AS reference,
                p.notes         AS notes,
                p.created_at    AS created_at
@@ -66,6 +70,7 @@ import java.util.UUID;
                'OTHER'         AS source,
                o.category      AS category,
                o.method        AS method,
+               o.received_by   AS received_by,
                o.reference     AS reference,
                o.notes         AS notes,
                o.created_at    AS created_at
@@ -118,6 +123,10 @@ public class IncomeEntry {
 
     @Column(name = "method")
     private String method;
+
+    /** Who took the money. Always null for rent — payments carry no such field. */
+    @Column(name = "received_by")
+    private String receivedBy;
 
     @Column(name = "reference")
     private String reference;

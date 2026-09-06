@@ -54,9 +54,13 @@ public class OtherIncome extends BaseEntity {
     @Column(nullable = false)
     private String category;
 
-    @Enumerated(EnumType.STRING)
+    /** Payment-method name (from the managed list, normalized on write). */
     @Column(nullable = false)
-    private IncomeMethod method;
+    private String method;
+
+    /** Free text — who received the money (e.g. a staff member or "front desk"). */
+    @Column
+    private String receivedBy;
 
     @Column
     private String reference;

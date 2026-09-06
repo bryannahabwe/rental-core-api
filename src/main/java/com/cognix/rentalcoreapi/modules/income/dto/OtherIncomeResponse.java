@@ -1,6 +1,5 @@
 package com.cognix.rentalcoreapi.modules.income.dto;
 
-import com.cognix.rentalcoreapi.modules.income.model.IncomeMethod;
 import com.cognix.rentalcoreapi.modules.income.model.OtherIncome;
 
 import java.math.BigDecimal;
@@ -18,7 +17,8 @@ public record OtherIncomeResponse(
         LocalDate incomeDate,
         BigDecimal amount,
         String category,
-        IncomeMethod method,
+        String method,
+        String receivedBy,
         String reference,
         String notes,
         LocalDateTime createdAt
@@ -35,6 +35,7 @@ public record OtherIncomeResponse(
                 o.getAmount(),
                 o.getCategory(),
                 o.getMethod(),
+                o.getReceivedBy(),
                 o.getReference(),
                 o.getNotes(),
                 o.getCreatedAt()

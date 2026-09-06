@@ -25,6 +25,7 @@ public record IncomeResponse(
         LocalDate incomeDate,
         BigDecimal amount,
         String method,
+        String receivedBy,
         String reference,
         String notes,
         LocalDateTime createdAt
@@ -44,6 +45,7 @@ public record IncomeResponse(
                 i.getIncomeDate(),
                 i.getAmount(),
                 i.getMethod(),
+                i.getReceivedBy(),
                 i.getReference(),
                 i.getNotes(),
                 i.getCreatedAt()

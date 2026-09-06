@@ -7,9 +7,9 @@ import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.income.dto.OtherIncomeRequest;
 import com.cognix.rentalcoreapi.modules.income.dto.OtherIncomeResponse;
-import com.cognix.rentalcoreapi.modules.income.model.IncomeMethod;
 import com.cognix.rentalcoreapi.modules.income.model.OtherIncome;
 import com.cognix.rentalcoreapi.modules.income.repository.OtherIncomeRepository;
+import com.cognix.rentalcoreapi.modules.paymentmethods.service.PaymentMethodService;
 import com.cognix.rentalcoreapi.modules.properties.model.Property;
 import com.cognix.rentalcoreapi.modules.properties.repository.PropertyRepository;
 import com.cognix.rentalcoreapi.modules.tenants.model.Tenant;
@@ -32,10 +32,18 @@ public class OtherIncomeService {
     /** Category used for the auto-generated row when a deposit is forfeited. */
     public static final String DEPOSIT_FORFEITURE_CATEGORY = "Deposit forfeiture";
 
+    /**
+     * Method for auto-generated rows. Matches the name seeded by
+     * {@code PaymentMethodService.DEFAULT_METHODS}, so it resolves against the
+     * managed list without creating a duplicate option.
+     */
+    private static final String CASH_METHOD = "Cash";
+
     private final OtherIncomeRepository otherIncomeRepository;
     private final PropertyRepository propertyRepository;
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
+    private final PaymentMethodService paymentMethodService;
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
 
@@ -65,7 +73,8 @@ public class OtherIncomeService {
                 .incomeDate(request.incomeDate())
                 .amount(request.amount())
                 .category(request.category().trim())
-                .method(request.method())
+                .method(paymentMethodService.resolveOrCreate(landlordId, request.method()))
+                .receivedBy(trimToNull(request.receivedBy()))
                 .reference(request.reference())
                 .notes(request.notes())
                 .build();
@@ -99,7 +108,8 @@ public class OtherIncomeService {
         income.setIncomeDate(request.incomeDate());
         income.setAmount(request.amount());
         income.setCategory(request.category().trim());
-        income.setMethod(request.method());
+        income.setMethod(paymentMethodService.resolveOrCreate(landlordId, request.method()));
+        income.setReceivedBy(trimToNull(request.receivedBy()));
         income.setReference(request.reference());
         income.setNotes(request.notes());
 
@@ -148,10 +158,18 @@ public class OtherIncomeService {
                 .incomeDate(date)
                 .amount(amount)
                 .category(DEPOSIT_FORFEITURE_CATEGORY)
-                .method(IncomeMethod.CASH)
+                .method(paymentMethodService.resolveOrCreate(landlordId, CASH_METHOD))
                 .reference("Forfeited deposit at move-out")
                 .build();
         otherIncomeRepository.save(income);
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private Tenant resolveTenant(UUID tenantId, UUID landlordId) {
