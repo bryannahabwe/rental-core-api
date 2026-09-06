@@ -4,7 +4,9 @@ import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +18,21 @@ public interface RentalAgreementRepository extends JpaRepository<RentalAgreement
     Page<RentalAgreement> findAllByLandlordId(UUID landlordId, Pageable pageable);
 
     Optional<RentalAgreement> findByIdAndLandlordId(UUID id, UUID landlordId);
+
+    /**
+     * The same lookup, holding a row lock for the rest of the transaction.
+     *
+     * <p>Every payment write replays the agreement's whole allocation from its
+     * CASH rows, so two concurrent writes would each replay from a snapshot
+     * missing the other's row and the second would rebuild a chain that does
+     * not know about the first. The lock is what makes replay-from-scratch a
+     * safe primitive. Same read-modify-write reason as
+     * {@code LandlordSettingsRepository.findByLandlordIdForUpdate}.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM RentalAgreement a WHERE a.id = :id AND a.landlord.id = :landlordId")
+    Optional<RentalAgreement> findByIdAndLandlordIdForUpdate(@Param("id") UUID id,
+                                                             @Param("landlordId") UUID landlordId);
 
     boolean existsByUnitIdAndStatus(UUID unitId, AgreementStatus status);
 

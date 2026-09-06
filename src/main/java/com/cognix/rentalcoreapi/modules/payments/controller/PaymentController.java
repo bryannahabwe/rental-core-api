@@ -53,11 +53,33 @@ public class PaymentController {
 
     // Caretakers collect rent at the property, so they record payments — but
     // nothing else that writes.
+    private static final String RECORD_ROLES =
+            "hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER','CARETAKER')";
+
+    // Narrower than recording. Whoever took the money may write it down;
+    // unwinding money already banked — and the tenant's cycle statuses with it
+    // — is an account-level decision.
+    private static final String AMEND_ROLES = "hasAnyRole('SUPER_ADMIN','ADMIN')";
+
     @PostMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','PROPERTY_MANAGER','CARETAKER')")
+    @PreAuthorize(RECORD_ROLES)
     public ResponseEntity<PaymentResponse> recordPayment(
             @Valid @RequestBody PaymentRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(paymentService.recordPayment(request));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize(AMEND_ROLES)
+    public ResponseEntity<PaymentResponse> updatePayment(
+            @PathVariable UUID id, @Valid @RequestBody PaymentRequest request) {
+        return ResponseEntity.ok(paymentService.updatePayment(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize(AMEND_ROLES)
+    public ResponseEntity<Void> deletePayment(@PathVariable UUID id) {
+        paymentService.deletePayment(id);
+        return ResponseEntity.noContent().build();
     }
 }

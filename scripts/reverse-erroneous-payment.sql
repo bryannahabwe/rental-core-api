@@ -1,15 +1,15 @@
 -- Reverse a payment recorded in error, and re-derive the credit it carried.
 --
--- There is no delete-payment endpoint: recording a payment is deliberately
--- one-way, because a payment row asserts that money changed hands. When one is
--- keyed in that should not have been — a mis-typed amount, a duplicate, or a
--- figure entered to clear a balance the system was wrongly showing — the row
--- has to come out here, deliberately, against a backup.
+-- PREFER THE APP. `DELETE /payments/{id}` now does all of this, for an admin or
+-- the account owner, with the same replay and an audit entry naming what was
+-- removed. Reach for this script only when the app cannot be used — a payment
+-- on an account you cannot sign into, or a repair being rehearsed against a
+-- restored backup.
 --
 -- Deleting the CASH row alone is not enough. Any surplus on it was re-recorded
 -- as ROLLOVER rows on later cycles, and those rows are what make those cycles
 -- read as paid. So the agreement's rollover chain is discarded and rebuilt from
--- the CASH rows that remain, exactly as V30 does.
+-- the CASH rows that remain, exactly as V30 and PaymentAllocationService do.
 --
 -- The audit trail is left intact. It records that someone performed the
 -- recording, which remains true and is the point of an audit trail; this script

@@ -30,6 +30,15 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     List<Payment> findAllByAgreementIdOrderByPaymentDateAscCreatedAtAsc(UUID agreementId);
 
+    /**
+     * Every row on an agreement in the order the payments were originally
+     * recorded — the order the allocation replay walks them in, so its outcome
+     * is what the code would have produced had it always been in place. Matches
+     * V30's {@code ORDER BY created_at, id}; the trailing id breaks the ties
+     * @CreationTimestamp can leave within a single transaction.
+     */
+    List<Payment> findAllByAgreementIdOrderByCreatedAtAscIdAsc(UUID agreementId);
+
     List<Payment> findAllByLandlordIdAndPaymentDateBetween(
             UUID landlordId, LocalDate from, LocalDate to);
 

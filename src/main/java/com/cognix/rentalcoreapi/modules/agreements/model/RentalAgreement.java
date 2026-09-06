@@ -68,9 +68,25 @@ public class RentalAgreement extends BaseEntity {
     @Builder.Default
     private TenantType tenantType = TenantType.NEW;
 
+    /**
+     * The effective opening balance — signed, negative meaning pre-existing
+     * arrears and positive a credit. Derived, never set directly: it is
+     * {@code openingBalanceEntered} plus every payment filed against a period
+     * before cycle tracking begins, plus any deposit applied at move-out.
+     * Recomputed by {@code PaymentAllocationService.reallocate}.
+     */
     @Column(nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal openingBalance = BigDecimal.ZERO;
+
+    /**
+     * The arrears or credit the landlord entered for this agreement. The only
+     * part of {@link #openingBalance} a person sets; kept apart from it so the
+     * rest stays reversible when a payment is corrected.
+     */
+    @Column(nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal openingBalanceEntered = BigDecimal.ZERO;
 
     @Column(nullable = false)
     @Builder.Default

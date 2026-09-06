@@ -11,6 +11,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -68,6 +69,15 @@ public class Payment extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private PaymentSource source = PaymentSource.CASH;
+
+    /**
+     * For a ROLLOVER row, the CASH payment whose surplus funded it. Null on
+     * CASH rows. Lets a refused edit on derived credit name the payment to
+     * correct instead, and the FK's ON DELETE CASCADE keeps a chain from
+     * outliving its funder.
+     */
+    @Column(name = "funded_by_payment_id")
+    private UUID fundedByPaymentId;
 
     @Column
     private String reference;

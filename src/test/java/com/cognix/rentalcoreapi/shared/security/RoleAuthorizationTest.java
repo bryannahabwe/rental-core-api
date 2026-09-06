@@ -30,9 +30,11 @@ import java.util.UUID;
 
 import com.cognix.rentalcoreapi.modules.auth.model.UserRole;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -191,5 +193,52 @@ class RoleAuthorizationTest {
                         .content(VALID_PAYMENT))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/settings/receipt-number")).andExpect(status().isForbidden());
+    }
+
+    // ── Amending a payment is narrower than recording one ──────────────────
+    //
+    // Whoever took the money may write it down; unwinding money already banked
+    // — and the tenant's cycle statuses with it — is Admin/Owner only.
+
+    private static final String PAYMENT_URL = "/payments/00000000-0000-0000-0000-000000000002";
+
+    @Test
+    @WithMockUser(roles = "CARETAKER")
+    void caretakerCannotAmendAPayment() throws Exception {
+        mockMvc.perform(put(PAYMENT_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_PAYMENT))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete(PAYMENT_URL)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "PROPERTY_MANAGER")
+    void propertyManagerCannotAmendAPayment() throws Exception {
+        mockMvc.perform(put(PAYMENT_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_PAYMENT))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete(PAYMENT_URL)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ACCOUNTANT")
+    void accountantCannotAmendAPayment() throws Exception {
+        mockMvc.perform(put(PAYMENT_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_PAYMENT))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete(PAYMENT_URL)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void adminCanAmendAPayment() throws Exception {
+        mockMvc.perform(put(PAYMENT_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_PAYMENT))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete(PAYMENT_URL)).andExpect(status().isNoContent());
     }
 }

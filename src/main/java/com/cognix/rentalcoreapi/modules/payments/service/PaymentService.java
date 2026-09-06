@@ -2,6 +2,7 @@ package com.cognix.rentalcoreapi.modules.payments.service;
 
 import com.cognix.rentalcoreapi.modules.agreements.model.AgreementStatus;
 import com.cognix.rentalcoreapi.modules.agreements.model.RentalAgreement;
+import com.cognix.rentalcoreapi.modules.audit.AuditDiff;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditAction;
 import com.cognix.rentalcoreapi.modules.audit.model.AuditModule;
 import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
@@ -10,7 +11,6 @@ import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.payments.dto.PaymentRequest;
 import com.cognix.rentalcoreapi.modules.payments.dto.PaymentResponse;
 import com.cognix.rentalcoreapi.modules.payments.model.Payment;
-import com.cognix.rentalcoreapi.modules.payments.model.PaymentMethod;
 import com.cognix.rentalcoreapi.modules.payments.model.PaymentSource;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
 import com.cognix.rentalcoreapi.shared.exception.ConflictException;
@@ -18,7 +18,6 @@ import com.cognix.rentalcoreapi.shared.exception.NotFoundException;
 import com.cognix.rentalcoreapi.shared.response.PagedResponse;
 import com.cognix.rentalcoreapi.shared.security.JwtUtils;
 import com.cognix.rentalcoreapi.shared.security.PropertyAccessGuard;
-import com.cognix.rentalcoreapi.shared.util.BillingCycleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -39,6 +40,7 @@ public class PaymentService {
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
     private final PeriodPaidLookup periodPaidLookup;
+    private final PaymentAllocationService allocationService;
 
     public PagedResponse<PaymentResponse> getAllPayments(
             Pageable pageable, UUID tenantId, UUID agreementId,
@@ -69,48 +71,15 @@ public class PaymentService {
         return PaymentResponse.from(payment, retainedByCycle(payment));
     }
 
-    // Beyond this many cycles ahead, stop hunting for an open slot for
-    // leftover rollover credit — guards against runaway recursion if a
-    // tenant has an implausibly long run of already-covered cycles.
-    private static final int MAX_ROLLOVER_LOOKAHEAD_CYCLES = 120;
-
     @Transactional
     public PaymentResponse recordPayment(PaymentRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
-
-        var agreement = agreementRepository.findByIdAndLandlordId(
-                        request.agreementId(), landlordId)
-                .orElseThrow(() -> new NotFoundException("Agreement not found"));
-        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
+        RentalAgreement agreement = lockAgreement(request.agreementId(), landlordId);
 
         if (agreement.getStatus() == AgreementStatus.TERMINATED) {
             throw new ConflictException(
                     "Cannot record payment for a terminated agreement");
         }
-
-        BigDecimal expectedAmount = agreement.getRentAmount();
-        BigDecimal paidAmount = request.amount();
-
-        // A payment for a period before cycle-tracking begins isn't for any
-        // billing cycle at all — it's the tenant paying down pre-existing
-        // arrears (the same balance the "Opening Balance" field represents).
-        // Apply it there directly instead of running it through the normal
-        // cycle/overpayment/rollover flow, which would otherwise either get
-        // silently excluded from balance totals (correct, but arrears never
-        // actually clear) or double-count it against unrelated later cycles.
-        boolean appliesToOpeningArrears = request.periodStartDate()
-                .isBefore(BillingCycleUtils.effectiveStartDate(agreement));
-
-        // Sized off what the cycle STILL needs, not off the bare rent. A cycle
-        // that already holds part of its rent must not be charged for it twice
-        // — and it silently was: the difference simply never entered the
-        // rollover chain, so a later cycle came up short by exactly the amount
-        // already paid here.
-        BigDecimal overpayment = appliesToOpeningArrears
-                ? BigDecimal.ZERO
-                : paidAmount.subtract(remainingNeed(
-                                agreement, request.periodStartDate(), request.periodEndDate()))
-                        .max(BigDecimal.ZERO);
 
         Payment payment = Payment.builder()
                 .landlord(userRepository.getReferenceById(landlordId))
@@ -119,131 +88,174 @@ public class PaymentService {
                 .unit(agreement.getUnit())
                 .agreement(agreement)
                 .paymentDate(request.paymentDate())
-                .amount(paidAmount)
+                .amount(request.amount())
                 .method(request.method())
                 .periodStartDate(request.periodStartDate())
                 .periodEndDate(request.periodEndDate())
-                .expectedAmount(expectedAmount)
-                .overpayment(overpayment)
+                .expectedAmount(agreement.getRentAmount())
+                .overpayment(BigDecimal.ZERO)
                 .source(PaymentSource.CASH)
                 .reference(request.reference())
                 .notes(request.notes())
                 .build();
 
         // saveAndFlush (not save) so @CreationTimestamp's INSERT-time
-        // population actually happens before this response is built.
+        // population actually happens before the replay orders rows by it.
         Payment saved = paymentRepository.saveAndFlush(payment);
 
+        // The row's own overpayment, the rollover chain it spawns and any
+        // effect on the opening balance are all derived — the replay sizes
+        // every one of them. A new row sorts last in recorded order, so it is
+        // allocated against exactly the state its predecessors left behind.
+        allocationService.reallocate(agreement);
+
         auditWriter.record(AuditModule.PAYMENT, AuditAction.RECORD_PAYMENT,
-                agreement.getProperty().getId(), agreement.getTenant().getName(),
+                agreement.getProperty().getId(), saved.getId().toString(),
                 "%s recorded a UGX %,.0f payment for %s (%s).".formatted(
-                        JwtUtils.getCurrentUserName(), paidAmount,
+                        JwtUtils.getCurrentUserName(), request.amount(),
                         agreement.getTenant().getName(), agreement.getUnit().getRoomNumber()));
 
-        if (appliesToOpeningArrears) {
-            agreement.setOpeningBalance(agreement.getOpeningBalance().add(paidAmount));
-            agreementRepository.save(agreement);
-        } else if (overpayment.compareTo(BigDecimal.ZERO) > 0) {
-            createRolloverPayment(
-                    agreement, overpayment,
-                    request.periodEndDate().plusDays(1),
-                    landlordId, request.paymentDate(), 0);
+        return PaymentResponse.from(saved, retainedByCycle(saved));
+    }
+
+    /**
+     * Corrects a payment already recorded — a mis-typed amount, the wrong date,
+     * the wrong billing period.
+     *
+     * <p>Allowed on a terminated agreement, unlike recording: a payment
+     * mis-keyed before move-out would otherwise be uncorrectable forever, which
+     * is the whole thing this exists to prevent. Recording a *new* payment onto
+     * a terminated agreement stays refused.
+     */
+    @Transactional
+    public PaymentResponse updatePayment(UUID id, PaymentRequest request) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
+
+        Payment payment = requireCorrectableCashRow(id, landlordId);
+        RentalAgreement agreement = lockAgreement(request.agreementId(), landlordId);
+
+        // Moving a payment between agreements would rewrite the denormalised
+        // property/tenant/unit columns, cross the property-access boundary, and
+        // leave a single audit row carrying one propertyId — so a cross-property
+        // move would vanish from one property's activity feed entirely.
+        // Delete-and-re-record produces two correctly-scoped rows instead.
+        if (!agreement.getId().equals(payment.getAgreement().getId())) {
+            throw new ConflictException(
+                    "A payment cannot be moved to a different agreement. "
+                            + "Delete it and record it again on the correct one.");
+        }
+
+        List<String> changes = new ArrayList<>();
+        AuditDiff.diff(changes, "amount", payment.getAmount(), request.amount());
+        AuditDiff.diff(changes, "payment date", payment.getPaymentDate(), request.paymentDate());
+        AuditDiff.diff(changes, "period start", payment.getPeriodStartDate(), request.periodStartDate());
+        AuditDiff.diff(changes, "period end", payment.getPeriodEndDate(), request.periodEndDate());
+        AuditDiff.diff(changes, "method", payment.getMethod(), request.method());
+        AuditDiff.diff(changes, "reference", payment.getReference(), request.reference());
+        AuditDiff.diff(changes, "notes", payment.getNotes(), request.notes());
+
+        payment.setPaymentDate(request.paymentDate());
+        payment.setAmount(request.amount());
+        payment.setMethod(request.method());
+        payment.setPeriodStartDate(request.periodStartDate());
+        payment.setPeriodEndDate(request.periodEndDate());
+        payment.setExpectedAmount(agreement.getRentAmount());
+        payment.setReference(request.reference());
+        payment.setNotes(request.notes());
+
+        Payment saved = paymentRepository.saveAndFlush(payment);
+
+        var result = allocationService.reallocate(agreement);
+        if (result.rolloversBefore() != result.rolloversAfter()) {
+            changes.add("carried-forward credit rebuilt (%d rows → %d)"
+                    .formatted(result.rolloversBefore(), result.rolloversAfter()));
+        }
+
+        // An edit that moved nothing is not an event worth a row in the feed.
+        if (!changes.isEmpty()) {
+            auditWriter.record(AuditModule.PAYMENT, AuditAction.UPDATE,
+                    agreement.getProperty().getId(), saved.getId().toString(),
+                    "%s edited a payment for %s (%s): %s.".formatted(
+                            JwtUtils.getCurrentUserName(), agreement.getTenant().getName(),
+                            agreement.getUnit().getRoomNumber(), String.join("; ", changes)));
         }
 
         return PaymentResponse.from(saved, retainedByCycle(saved));
     }
 
     /**
-     * What a billing cycle still needs: its rent less what it already retains.
-     *
-     * <p>Every credit decision is sized off this rather than off the bare rent
-     * — how much of a payment spills forward, and how much of that spill each
-     * downstream cycle absorbs. Sizing off rent alone charges a cycle again for
-     * money it already holds, and the difference does not resurface anywhere:
-     * a 610k lump sum against an April already holding 110k rolled 430k instead
-     * of 540k, leaving July 110k short of a month it had in fact been paid.
+     * Removes a payment recorded in error and re-derives everything that leaned
+     * on it. The row goes; the audit trail keeps what it was, since a deleted
+     * row can no longer speak for itself.
      */
-    private BigDecimal remainingNeed(
-            RentalAgreement agreement, LocalDate cycleStart, LocalDate cycleEnd) {
+    @Transactional
+    public void deletePayment(UUID id) {
+        UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        return agreement.getRentAmount()
-                .subtract(retained(agreement.getId(), cycleStart, cycleEnd))
-                .max(BigDecimal.ZERO);
+        Payment payment = requireCorrectableCashRow(id, landlordId);
+        RentalAgreement agreement = lockAgreement(payment.getAgreement().getId(), landlordId);
+
+        // Captured before the delete — nothing below can read the row.
+        String statement = "%s deleted a UGX %,.0f payment for %s (%s) covering %s – %s, received on %s.".formatted(
+                JwtUtils.getCurrentUserName(), payment.getAmount(),
+                payment.getTenant().getName(), payment.getUnit().getRoomNumber(),
+                payment.getPeriodStartDate(), payment.getPeriodEndDate(),
+                payment.getPaymentDate());
+        UUID propertyId = payment.getProperty().getId();
+
+        paymentRepository.delete(payment);
+        // The DELETE must reach the database before the replay reads the rows,
+        // or it allocates against the payment it is meant to be removing.
+        paymentRepository.flush();
+
+        allocationService.reallocate(agreement);
+
+        auditWriter.record(AuditModule.PAYMENT, AuditAction.DELETE,
+                propertyId, id.toString(), statement);
     }
 
-    private BigDecimal retained(UUID agreementId, LocalDate cycleStart, LocalDate cycleEnd) {
-        BigDecimal sum = paymentRepository.sumRetainedByAgreementAndCycle(
-                agreementId, cycleStart, cycleEnd);
-        return sum != null ? sum : BigDecimal.ZERO;
+    /**
+     * The payment a correction may act on: one this account owns, at a property
+     * the caller can reach, and actually a record of money received.
+     */
+    private Payment requireCorrectableCashRow(UUID id, UUID landlordId) {
+        Payment payment = paymentRepository.findByIdAndLandlordId(id, landlordId)
+                .orElseThrow(() -> new NotFoundException("Payment not found"));
+        propertyAccessGuard.assertCanAccess(payment.getProperty().getId());
+
+        // A ROLLOVER row is derived, not received: it re-labels cash already
+        // recorded on the CASH row that spawned it. Editing one by hand would
+        // be undone by the next replay anyway.
+        if (payment.getSource() == PaymentSource.ROLLOVER) {
+            throw new ConflictException(
+                    "This is carried-forward credit, not a payment received. "
+                            + describeFunder(payment));
+        }
+        return payment;
+    }
+
+    private String describeFunder(Payment rollover) {
+        return paymentRepository.findById(
+                        rollover.getFundedByPaymentId() != null
+                                ? rollover.getFundedByPaymentId() : rollover.getId())
+                .filter(p -> p.getSource() == PaymentSource.CASH)
+                .map(p -> "Correct the UGX %,.0f payment received on %s that it was carried forward from."
+                        .formatted(p.getAmount(), p.getPaymentDate()))
+                .orElse("Correct the payment it was carried forward from instead.");
+    }
+
+    private RentalAgreement lockAgreement(UUID agreementId, UUID landlordId) {
+        RentalAgreement agreement = agreementRepository
+                .findByIdAndLandlordIdForUpdate(agreementId, landlordId)
+                .orElseThrow(() -> new NotFoundException("Agreement not found"));
+        propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
+        return agreement;
     }
 
     private BigDecimal retainedByCycle(Payment payment) {
-        return retained(payment.getAgreement().getId(),
+        BigDecimal sum = paymentRepository.sumRetainedByAgreementAndCycle(
+                payment.getAgreement().getId(),
                 payment.getPeriodStartDate(), payment.getPeriodEndDate());
-    }
-
-    private void createRolloverPayment(
-            RentalAgreement agreement, BigDecimal rolloverAmount,
-            LocalDate nextCycleStart, UUID landlordId, LocalDate originalPaymentDate,
-            int depth) {
-
-        if (rolloverAmount.compareTo(BigDecimal.ZERO) <= 0
-                || depth >= MAX_ROLLOVER_LOOKAHEAD_CYCLES) {
-            return;
-        }
-
-        int billingDay = agreement.getBillingDay();
-        LocalDate nextCycleEnd = BillingCycleUtils.cycleEnd(nextCycleStart, billingDay);
-
-        // How much this cycle can still absorb. A cycle already holding part of
-        // its rent — from cash, or from the tail of an earlier rollover chain —
-        // takes only the shortfall and the rest travels on.
-        //
-        // This replaces a check that skipped any cycle already carrying a
-        // ROLLOVER row, on the assumption that rollover rows are always written
-        // for a full month. The last row in a chain is partial by construction,
-        // so a part-covered cycle was jumped over entirely and left underfunded
-        // while the credit landed a month too late.
-        BigDecimal need = remainingNeed(agreement, nextCycleStart, nextCycleEnd);
-
-        if (need.compareTo(BigDecimal.ZERO) <= 0) {
-            createRolloverPayment(agreement, rolloverAmount,
-                    nextCycleEnd.plusDays(1), landlordId, originalPaymentDate, depth + 1);
-            return;
-        }
-
-        BigDecimal actualRollover = rolloverAmount.min(need);
-        BigDecimal remainingOverpayment = rolloverAmount.subtract(actualRollover);
-
-        Payment rollover = Payment.builder()
-                .landlord(userRepository.getReferenceById(landlordId))
-                .property(agreement.getProperty())
-                .tenant(agreement.getTenant())
-                .unit(agreement.getUnit())
-                .agreement(agreement)
-                .paymentDate(originalPaymentDate)
-                .amount(actualRollover)
-                .method(PaymentMethod.CASH)
-                .periodStartDate(nextCycleStart)
-                .periodEndDate(nextCycleEnd)
-                .expectedAmount(agreement.getRentAmount())
-                // This row's `amount` is already the credit for THIS cycle
-                // (capped at what the cycle still needed). Any leftover is
-                // carried by the NEXT rollover row below — NOT by this row's
-                // overpayment. Storing it here would make `amount - overpayment`
-                // (the per-cycle retained figure) net to zero for every middle
-                // cycle.
-                .overpayment(BigDecimal.ZERO)
-                .source(PaymentSource.ROLLOVER)
-                .reference("Rollover from " + nextCycleStart.minusDays(1))
-                .notes(null)
-                .build();
-
-        paymentRepository.save(rollover);
-
-        if (remainingOverpayment.compareTo(BigDecimal.ZERO) > 0) {
-            createRolloverPayment(agreement, remainingOverpayment,
-                    nextCycleEnd.plusDays(1), landlordId, originalPaymentDate, depth + 1);
-        }
+        return sum != null ? sum : BigDecimal.ZERO;
     }
 }

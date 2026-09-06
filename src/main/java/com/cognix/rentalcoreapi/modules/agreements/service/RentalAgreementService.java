@@ -16,6 +16,7 @@ import com.cognix.rentalcoreapi.modules.audit.service.AuditWriter;
 import com.cognix.rentalcoreapi.modules.auth.repository.UserRepository;
 import com.cognix.rentalcoreapi.modules.income.service.OtherIncomeService;
 import com.cognix.rentalcoreapi.modules.payments.repository.PaymentRepository;
+import com.cognix.rentalcoreapi.modules.payments.service.PaymentAllocationService;
 import com.cognix.rentalcoreapi.modules.tenants.repository.TenantRepository;
 import com.cognix.rentalcoreapi.modules.units.repository.RentalUnitRepository;
 import com.cognix.rentalcoreapi.shared.exception.ConflictException;
@@ -47,6 +48,7 @@ public class RentalAgreementService {
     private final PaymentRepository paymentRepository;
     private final PropertyAccessGuard propertyAccessGuard;
     private final AuditWriter auditWriter;
+    private final PaymentAllocationService allocationService;
     private final AgreementBalanceCalculator balanceCalculator;
     private final OtherIncomeService otherIncomeService;
 
@@ -138,6 +140,7 @@ public class RentalAgreementService {
                 .status(AgreementStatus.ACTIVE)
                 .tenantType(tenantType)
                 .openingBalance(openingBalance)
+                .openingBalanceEntered(openingBalance)
                 .billingDay(billingDay)
                 .billingModel(billingModel)
                 .build();
@@ -160,7 +163,12 @@ public class RentalAgreementService {
     public RentalAgreementResponse recordMoveOut(UUID id, MoveOutRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
+        // Locked: this path replays the agreement's payment allocation, which
+        // reads every row and rewrites the derived ones. A concurrent payment
+        // write would otherwise replay from a snapshot missing this change, or
+        // this one from a snapshot missing the payment.
+        RentalAgreement agreement = agreementRepository
+                .findByIdAndLandlordIdForUpdate(id, landlordId)
                 .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
@@ -202,13 +210,12 @@ public class RentalAgreementService {
                                 + outstanding.toPlainString());
             }
 
-            // Applying to the balance = adding a credit to openingBalance, the
-            // same knob PaymentService uses to pay down arrears. The computed
-            // balance shrinks automatically; no payment row is created, so the
-            // applied deposit is (correctly) not counted as rental revenue.
-            if (applied.signum() > 0) {
-                agreement.setOpeningBalance(agreement.getOpeningBalance().add(applied));
-            }
+            // Applying to the balance = adding a credit to the opening balance,
+            // the same knob an arrears payment turns. The computed balance
+            // shrinks automatically; no payment row is created, so the applied
+            // deposit is (correctly) not counted as rental revenue. The figure
+            // itself is derived from depositApplied by the replay below, not
+            // added here — see V32.
             agreement.setDepositApplied(applied);
             agreement.setDepositRefunded(refunded);
             agreement.setDepositForfeited(forfeited);
@@ -222,6 +229,9 @@ public class RentalAgreementService {
         unitRepository.save(unit);
 
         RentalAgreement saved = agreementRepository.save(agreement);
+
+        // depositApplied feeds the opening balance, which is derived.
+        allocationService.reallocate(saved);
 
         auditWriter.record(AuditModule.RENTAL_AGREEMENT, AuditAction.MOVE_OUT,
                 agreement.getProperty().getId(), agreement.getTenant().getName(),
@@ -258,14 +268,19 @@ public class RentalAgreementService {
     public RentalAgreementResponse updateAgreement(UUID id, RentalAgreementRequest request) {
         UUID landlordId = JwtUtils.getCurrentLandlordId();
 
-        RentalAgreement agreement = agreementRepository.findByIdAndLandlordId(id, landlordId)
+        // Locked: this path replays the agreement's payment allocation, which
+        // reads every row and rewrites the derived ones. A concurrent payment
+        // write would otherwise replay from a snapshot missing this change, or
+        // this one from a snapshot missing the payment.
+        RentalAgreement agreement = agreementRepository
+                .findByIdAndLandlordIdForUpdate(id, landlordId)
                 .orElseThrow(() -> new NotFoundException("Agreement not found"));
         propertyAccessGuard.assertCanAccess(agreement.getProperty().getId());
 
         var oldRent = agreement.getRentAmount();
         var oldDeposit = agreement.getDepositAmount();
         var oldBilling = agreement.getBillingModel();
-        var oldOpening = agreement.getOpeningBalance();
+        var oldOpening = agreement.getOpeningBalanceEntered();
         var oldStart = agreement.getStartDate();
 
         // Update allowed fields
@@ -279,7 +294,10 @@ public class RentalAgreementService {
             agreement.setBillingModel(request.billingModel());
         }
         if (request.openingBalance() != null) {
-            agreement.setOpeningBalance(request.openingBalance());
+            // The landlord sets what they entered; the effective figure is
+            // re-derived below, which also re-classifies payments across the
+            // arrears boundary if startDate moved with it.
+            agreement.setOpeningBalanceEntered(request.openingBalance());
         }
         if (request.startDate() != null) {
             agreement.setStartDate(request.startDate());
@@ -291,10 +309,15 @@ public class RentalAgreementService {
         AuditDiff.diff(changes, "rent", oldRent, agreement.getRentAmount());
         AuditDiff.diff(changes, "deposit", oldDeposit, agreement.getDepositAmount());
         AuditDiff.diff(changes, "billing model", oldBilling, agreement.getBillingModel());
-        AuditDiff.diff(changes, "opening balance", oldOpening, agreement.getOpeningBalance());
+        AuditDiff.diff(changes, "opening balance", oldOpening, agreement.getOpeningBalanceEntered());
         AuditDiff.diff(changes, "start date", oldStart, agreement.getStartDate());
 
         RentalAgreement saved = agreementRepository.save(agreement);
+
+        // Rent, startDate and the entered opening balance all feed derived
+        // figures — the rollover chain and the effective opening balance —
+        // so replay rather than leave them stale.
+        allocationService.reallocate(saved);
 
         if (!changes.isEmpty()) {
             auditWriter.record(AuditModule.RENTAL_AGREEMENT, AuditAction.UPDATE,
